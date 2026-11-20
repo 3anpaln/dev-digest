@@ -68,4 +68,13 @@ describe("A5 Run Trace drawer (smoke)", () => {
     // LiveLogStream renders its filter input
     expect(screen.getByPlaceholderText("Filter log…")).toBeInTheDocument();
   });
+
+  it("formats USD using the active locale", () => {
+    render(
+      <NextIntlClientProvider locale="de-DE" messages={{ runs: messages }}>
+        <TraceBody trace={TRACE} findings={[]} />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByText("COST").nextElementSibling).toHaveTextContent("0,06 $");
+  });
 });

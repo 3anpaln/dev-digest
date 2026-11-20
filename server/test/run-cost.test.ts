@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loggedCost } from '../src/modules/pulls/latest-run.js';
 
 const usage = (attempt_id: string, cost_usd: number | null) => ({ usage: { attempt_id, cost_usd } });
@@ -12,11 +12,26 @@ describe('saved attempt usage', () => {
     ])).toBeCloseTo(0.01424, 12);
   });
 
-  it('distinguishes known zero from absent, incomplete, malformed or conflicting usage', () => {
+  it('distinguishes known zero from absent, incomplete or malformed usage', () => {
     expect(loggedCost([usage('1', 0), usage('1', 0)])).toBe(0);
     for (const log of [null, [], [{ msg: 'legacy' }], [usage('1', 0), usage('2', null)],
-      [usage('1', 0), usage('1', 1)], [{ usage: { cost_usd: 2 } }]]) {
+      [{ usage: { cost_usd: 2 } }]]) {
       expect(loggedCost(log)).toBeNull();
+    }
+  });
+
+  it('warns about conflicting charges for one attempt and returns unknown', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(loggedCost([usage('1', 0), usage('1', 0)], 'run-1')).toBe(0);
+      expect(warn).not.toHaveBeenCalled();
+      expect(loggedCost([usage('1', 0), usage('1', 1)], 'run-1')).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('Conflicting costs for a review attempt', {
+        runId: 'run-1', attemptId: '1', previousCostUsd: 0, costUsd: 1,
+      });
+    } finally {
+      warn.mockRestore();
     }
   });
 });

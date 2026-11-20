@@ -13,6 +13,8 @@ On the Pull Requests list, each PR row shows the USD cost of its most recently s
 
 ## Client
 
+Use the active application locale for number formatting on both surfaces. The currency is USD.
+
 Use the existing `PRRow`, shared header/row grid and `prReview` translations. Format USD with a dollar sign and three fractional digits, rounded to nearest with ties up. Show positive amounts below $0.0005 as `<$0.001` so only a known zero displays as `$0.000`. Use the following English labels as tooltips and accessible text, including the displayed amount when present.
 
 | Latest run | Visible COST cell | Label |

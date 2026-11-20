@@ -177,6 +177,6 @@ export class ReviewService {
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {
     const trace = await this.repo.getRunTrace(runId);
     if (!trace) return undefined;
-    return { ...trace, stats: { ...trace.stats, cost_usd: loggedCost(trace.log) } };
+    return { ...trace, stats: { ...trace.stats, cost_usd: loggedCost(trace.log, runId) } };
   }
 }

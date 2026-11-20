@@ -3,7 +3,7 @@ import { AttemptUsage, type PrListItem } from '@devdigest/shared';
 import type { Db } from '../../db/client.js';
 import { agentRuns, runTraces } from '../../db/schema.js';
 
-export function loggedCost(log: unknown): number | null {
+export function loggedCost(log: unknown, runId?: string): number | null {
   if (!Array.isArray(log)) return null;
   const attempts = new Map<string, number>();
   let total = 0;
@@ -14,7 +14,12 @@ export function loggedCost(log: unknown): number | null {
     const { attempt_id, cost_usd } = usage.data;
     const previous = attempts.get(attempt_id);
     if (previous !== undefined) {
-      if (previous !== cost_usd) return null;
+      if (previous !== cost_usd) {
+        console.warn('Conflicting costs for a review attempt', {
+          runId, attemptId: attempt_id, previousCostUsd: previous, costUsd: cost_usd,
+        });
+        return null;
+      }
       continue;
     }
     attempts.set(attempt_id, cost_usd);
@@ -37,12 +42,13 @@ export async function latestRunsForPulls(db: Db, workspaceId: string, prIds: str
   // separate workspace: its primary key is a foreign key to the globally
   // unique agent_runs.id, so it belongs to exactly that run's workspace.
   const rows = await db.select({
+    runId: latest.id,
     prId: latest.prId,
     status: latest.status,
     log: sql`${runTraces.trace} -> ${'log'}::text`,
   }).from(latest).leftJoin(runTraces, eq(runTraces.runId, latest.id));
-  for (const { prId, status, log } of rows) {
-    runs.set(prId!, { status, cost_usd: status === 'running' ? null : loggedCost(log) });
+  for (const { runId, prId, status, log } of rows) {
+    runs.set(prId!, { status, cost_usd: status === 'running' ? null : loggedCost(log, runId) });
   }
   return runs;
 }
