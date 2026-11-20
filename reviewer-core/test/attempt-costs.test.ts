@@ -1,6 +1,24 @@
 import { expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { AttemptCosts, OpenRouterProvider, reviewPullRequest } from '../src/index.js';
 import { MockGitClient } from '../../server/src/adapters/mocks.js';
+
+it('pins the OpenRouter endpoint even when OPENAI_BASE_URL is set', async () => {
+  vi.stubEnv('OPENAI_BASE_URL', 'https://example.invalid/v1');
+  const fetch = vi.fn(async () => Response.json({
+    choices: [{ message: { content: '{}' } }],
+  }));
+  try {
+    const provider = new OpenRouterProvider('test', { fetch, maxRetries: 0 });
+    await provider.completeStructured({
+      model: 'test', schema: z.object({}), schemaName: 'Review', messages: [],
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith('https://openrouter.ai/api/v1/chat/completions', expect.anything());
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
 
 it('prefers reported charges and estimates only complete, priceable usage', () => {
   const record = vi.fn();
@@ -29,6 +47,38 @@ it.each([NaN, Infinity, -Infinity, -1])('records invalid direct cost %s as unkno
   costs.record(0.01);
   expect(costs.total).toBeNull();
   expect(onAttemptCost.mock.calls).toEqual([[0], [null], [0.01]]);
+});
+
+it('retains a recognized network code for retry decisions', () => {
+  const costs = new AttemptCosts('test');
+  const error = Object.assign(new Error('private provider diagnostic'), { code: 'ECONNRESET' });
+  expect(() => costs.failed(error)).toThrow(expect.objectContaining({
+    message: 'Provider request failed',
+    code: 'ECONNRESET',
+  }));
+  expect(costs.total).toBeNull();
+});
+
+it.each([
+  { status: 401, message: 'Provider request failed (HTTP 401)' },
+  { status: 200, message: 'OpenRouter returned no choices for Review' },
+])('keeps upstream error details private for HTTP $status', async ({ status, message }) => {
+  const marker = 'private provider diagnostic';
+  const fetch = vi.fn(async () => Response.json({ error: { message: marker } }, {
+    status, headers: { 'x-diagnostic': marker },
+  }));
+  const llm = new OpenRouterProvider('test', { fetch, maxRetries: 0 });
+  const onAttemptCost = vi.fn();
+  const error = await llm.completeStructured({
+    model: 'test', schema: z.object({}), schemaName: 'Review', messages: [], onAttemptCost,
+  }).catch((failure: unknown) => failure);
+  expect(error).toBeInstanceOf(Error);
+  expect(error).toHaveProperty('message', message);
+  expect(error).not.toHaveProperty('cause');
+  expect(error).not.toHaveProperty('headers');
+  expect(error).not.toHaveProperty('error');
+  expect(JSON.stringify(error)).not.toContain(marker);
+  expect(onAttemptCost.mock.calls).toEqual([[null]]);
 });
 
 it.each([

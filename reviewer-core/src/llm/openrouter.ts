@@ -106,8 +106,7 @@ export class OpenRouterProvider implements LLMProvider {
       // error / moderation / free-tier limit in the body) — surface it.
       const choice = res.choices?.[0];
       if (!choice) {
-        const errMsg = (res as unknown as { error?: { message?: string } }).error?.message;
-        throw new Error(`OpenRouter returned no choices for ${req.schemaName}${errMsg ? `: ${errMsg}` : ''}`);
+        throw new Error(`OpenRouter returned no choices for ${req.schemaName}`);
       }
       lastRaw = choice.message?.content ?? '';
       tokensIn += res.usage?.prompt_tokens ?? 0;

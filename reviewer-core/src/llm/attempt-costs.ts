@@ -35,8 +35,28 @@ export class AttemptCosts {
   }
 
   failed = (error: unknown): never => {
-    if (!this.blockedBeforeDispatch) this.record(null);
-    throw error;
+    // A blocked dispatch throws the caller's cancellation signal.
+    if (this.blockedBeforeDispatch) throw error;
+    this.record(null);
+
+    // Keep the fields retry policies use without exposing provider messages,
+    // response bodies, headers, or causes to callers and run logs.
+    const failure = error as {
+      status?: unknown;
+      statusCode?: unknown;
+      response?: { status?: unknown };
+      code?: unknown;
+    } | null;
+    const rawStatus = failure?.status ?? failure?.statusCode ?? failure?.response?.status;
+    const status = typeof rawStatus === 'number' && Number.isInteger(rawStatus)
+      && rawStatus >= 100 && rawStatus <= 599 ? rawStatus : undefined;
+    const rawCode = failure?.code;
+    const code = rawCode === 'ECONNRESET' || rawCode === 'ETIMEDOUT' || rawCode === 'ENOTFOUND'
+      ? rawCode : undefined;
+    const message = status === undefined
+      ? 'Provider request failed'
+      : `Provider request failed (HTTP ${status})`;
+    throw Object.assign(new Error(message), { status, code });
   };
 }
 

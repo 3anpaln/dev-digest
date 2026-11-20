@@ -169,9 +169,7 @@ export class AnthropicProvider implements LLMProvider {
       });
     }
 
-    throw new ExternalServiceError('Anthropic structured output failed schema validation', {
-      raw: lastRaw,
-    });
+    throw new ExternalServiceError('Anthropic structured output failed schema validation');
   }
 
   async embed(): Promise<number[][]> {

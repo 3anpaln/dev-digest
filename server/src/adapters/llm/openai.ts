@@ -136,9 +136,7 @@ export class OpenAIProvider implements LLMProvider {
       messages.push({ role: 'user', content: parsed.repromptMessage });
     }
 
-    throw new ExternalServiceError('OpenAI structured output failed schema validation', {
-      raw: lastRaw,
-    });
+    throw new ExternalServiceError('OpenAI structured output failed schema validation');
   }
 
   async embed(texts: string[]): Promise<number[][]> {

@@ -20,6 +20,10 @@ describe('saved attempt usage', () => {
     }
   });
 
+  it.each(['', 42, null, { id: '2' }])('rejects malformed attempt ID %j', (attempt_id) => {
+    expect(loggedCost([usage('1', 0.01), { usage: { attempt_id, cost_usd: 0.02 } }])).toBeNull();
+  });
+
   it('warns about conflicting charges for one attempt and returns unknown', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
