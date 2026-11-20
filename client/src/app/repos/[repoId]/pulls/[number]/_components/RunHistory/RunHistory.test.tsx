@@ -5,11 +5,14 @@
  * and shows the review score ring.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import type { RunSummary } from "@devdigest/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReviewRecord, RunSummary } from "@devdigest/shared";
+import { useCancelRun } from "@/lib/hooks/reviews";
 import messages from "../../../../../../../../messages/en/prReview.json";
 import { RunHistory } from "./RunHistory";
+import { FindingsTab } from "../FindingsTab/FindingsTab";
 
 afterEach(cleanup);
 
@@ -25,6 +28,7 @@ function run(o: Partial<RunSummary>): RunSummary {
     duration_ms: 1000,
     tokens_in: 100,
     tokens_out: 50,
+    cost_usd: null,
     findings_count: 0,
     grounding: "0/0 passed",
     ran_at: "2026-06-11T18:44:34.000Z",
@@ -72,4 +76,39 @@ describe("RunHistory — outcome badge", () => {
     renderRuns([run({ status: "running", score: null, blockers: null })]);
     expect(screen.getByText("running")).toBeInTheDocument();
   });
+});
+
+it("shows each run's cost in its timeline row and matching review header", () => {
+  const reviews = ["run-2", "run-1"].map((id): ReviewRecord => ({
+    id: `review-${id}`, pr_id: "pr-1", run_id: id, agent_id: "a1",
+    agent_name: "Security Reviewer", kind: "review", verdict: null,
+    summary: null, score: 38, model: null, created_at: "2026-06-11T18:44:34.000Z", findings: [],
+  }));
+  const runs = [
+    run({ cost_usd: 0.00126, tokens_in: 9000, tokens_out: 119 }),
+    run({ run_id: "run-2", cost_usd: 0 }),
+    run({ run_id: "run-3", status: "failed", error: "Provider unavailable", tokens_in: 0, tokens_out: 0 }),
+  ];
+  function View() {
+    const cancel = useCancelRun();
+    return (
+      <FindingsTab prId="pr-1" liveRunIds={[]} reviewRunning={false} lethalTrifecta={[]}
+        runs={reviews} prRuns={runs} prCommits={[]} cancelMutation={cancel}
+        onOpenTrace={() => {}} onDelete={() => {}} onRunDone={() => {}} />
+    );
+  }
+  const { container } = render(
+    <QueryClientProvider client={new QueryClient()}>
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <View />
+      </NextIntlClientProvider>
+    </QueryClientProvider>,
+  );
+  expect(screen.getByText("$0.0013").parentElement).toHaveTextContent("9,119 tok · $0.0013");
+  expect(screen.getByText("$0.0000")).toBeInTheDocument();
+  expect(screen.queryByTitle("Run cost · unavailable")).toBeNull();
+  const first = within(container.querySelector<HTMLElement>("#review-run-run-1")!);
+  const second = within(container.querySelector<HTMLElement>("#review-run-run-2")!);
+  expect(first.getByText("$0.001").previousElementSibling).toHaveTextContent("38");
+  expect(second.getByText("$0.000")).toBeInTheDocument();
 });

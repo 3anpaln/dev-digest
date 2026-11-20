@@ -1,15 +1,14 @@
-# Review cost on PR cards and in the run sidebar
+# Review cost on PR cards, Agent runs, and in the run sidebar
 
-On the Pull Requests list, each PR row shows the USD cost of its most recently started agent review. Match the list mockup (images 1 and 4) with a compact, muted monospace value under **COST**, immediately after **STATUS** and before **UPDATED** in the current grid. The badge is plain, noninteractive text within the clickable row.
+On the Pull Requests list, each PR row shows the total USD cost of its review history across all agents, commit heads, and reruns. Match the list mockup (images 1 and 4) with a compact, muted monospace value under **COST**, immediately after **STATUS** and before **UPDATED** in the current grid. The badge is plain, noninteractive text within the clickable row.
 
 ## Server and API
 
-- “Run all” starts a separate run for each agent. The PR card reports the latest agent’s run, even when several agents start on the same PR milliseconds apart.
-- In `GET /repos/:id/pulls`, select one `agent_runs` row per internal `pr_id` in the authorized workspace and repository. Order by `ran_at DESC, id DESC` across all agents, heads and statuses. A manual rerun gets its own run ID. An older run finishing later cannot displace it. Batch this lookup and left-join the selected IDs to `run_traces.run_id` so PRs without traces still appear.
-- For each review model request, record one structured usage outcome per attempt in the run's own log, including each map chunk and schema-repair retry. Give the attempt a stable run-local ID. Preserve its normalized `cost_usd` in the saved `trace.log` on success, failure and cancellation. Today's trace writers retain only `t`, `kind` and `msg`. Extend the log-line schema with optional typed usage metadata so older logs remain readable.
+- In `GET /repos/:id/pulls`, batch-select all review runs by internal PR ID in the authorized workspace and repository. Left-join `run_traces` by run ID. Include each agent from “Run all”, each manual rerun, and any failed or cancelled run with fully accounted usage.
+- For each review model request, record one structured usage outcome per attempt in the run's own log, including each map chunk and schema-repair retry. Give the attempt a stable run-local ID and preserve its normalized `cost_usd` in the saved `trace.log` on success, failure and cancellation.
 - Normalize at call time. Prefer a finite, nonnegative provider-reported USD charge (including explicit zero). Otherwise use the existing `estimateCost` with that attempt's model and both reported nonnegative integer token counts. Missing counts, unknown pricing or an indeterminate charge yield `null` when the provider gives no usable charge. Record an unknown outcome for a dispatched attempt whose billing cannot be determined. A retry scheduled but never dispatched contributes nothing.
-- Sum distinct attempt outcomes for the selected run. Count a billed response even if its output failed validation. Ignore duplicate copies of the same outcome, cumulative retry totals, run summaries, shared preparation events and free-text log messages. Conflicting outcomes for one ID, any unknown attempt, or no usable usage records make the total unknown. This rule also covers historical traces and failures before the first model call.
-- Extend the list item contract from `PrMeta` in both vendored shared packages. Every list item includes `latest_run`, either JSON `null` (no run) or an object with the selected run's stored `status` and required `cost_usd: number | null`. For example, `{"latest_run":{"status":"done","cost_usd":0.01424}}`. Use USD, retain the full numeric precision of the summed charges on the wire, and reserve rounding for display. Numeric `0` means all contributing charges are known and zero. Return `null` for an unknown total and while the run is running. The existing list fetch supplies the badge with zero additional model calls or per-card requests.
+- Sum distinct attempt outcomes within each run, then sum the run totals per PR. Count billed responses even if output validation failed. Ignore exact replays, cumulative summaries, shared preparation events and free-text messages. A missing trace, conflicting outcome, unknown attempt or lack of usable usage makes that run and the PR total unknown.
+- Each `PrListItem` includes `review_cost` in both vendored shared contracts. It is JSON `null` for a PR with no runs. Otherwise it contains a boolean `running` and a finite, nonnegative `cost_usd: number | null`. `running` is true while any run is active and `cost_usd` is then null. For a fully priced history, return the unrounded USD total, for example `{"review_cost":{"running":false,"cost_usd":0.0231119252}}`. Numeric zero represents a fully accounted total of zero. Use the existing list fetch.
 
 ## Client
 
@@ -17,12 +16,17 @@ Use the active application locale for number formatting on both surfaces. The cu
 
 Use the existing `PRRow`, shared header/row grid and `prReview` translations. Format USD with a dollar sign and three fractional digits, rounded to nearest with ties up. Show positive amounts below $0.0005 as `<$0.001` so only a known zero displays as `$0.000`. Use the following English labels as tooltips and accessible text, including the displayed amount when present.
 
-| Latest run | Visible COST cell | Label |
+| Review history | Visible COST cell | Label |
 | --- | --- | --- |
-| Completed (`done`) | Amount, e.g. `$0.014`, or `—` for unknown | Latest review cost · {amount or “unavailable”} |
-| In progress (`running`) | `…` until the list refetches with a terminal result | Latest review in progress |
-| Failed or cancelled | Amount if fully accounted for, otherwise `—` | Latest review failed/cancelled · cost {amount or “unavailable”}, using the actual state |
+| All runs settled | Amount, e.g. `$0.023`, or `—` for unknown | Total review cost · {amount or “unavailable”} |
+| Any run in progress | `…` until the list refetches after all runs settle | Review in progress |
 | No run | `—` | No review run |
+
+### Agent runs tab
+
+- Extend `GET /pulls/:id/runs` with a nullable numeric `cost_usd` on each run summary. Compute it from that run’s saved attempt log. Return null while the run is active or when usage is unavailable. Both sections use this list response.
+- In **Timeline**, place a muted monospace line below the run timestamp showing input plus output tokens and USD cost, for example `9,119 tok · $0.0013`. Show four decimal places. Completed runs with unknown cost show `—`. Failed or cancelled runs show the line when they have recorded tokens or a known cost. Active runs and commit entries omit the line.
+- In **Review runs**, place the matching run’s cost after the score and before the timestamp. Match the review to its run by `run_id`. Show three decimal places, for example `$0.001`, or `—` for unknown cost or a review without a matching run. Both sections format known zero as zero and use a less-than threshold when a positive charge would round to zero.
 
 ### Agent run sidebar
 
@@ -32,21 +36,21 @@ Format the sidebar value in USD to two decimal places (for example, `$0.06`). Sh
 
 ## Acceptance criteria
 
-1. A Postgres list-route test seeds two agents on one PR, an older run that finishes last, and an identically numbered PR in another repo. Only the newest local-to-that-PR run supplies status and cost. Equal start times select the greater run ID. A newer run with no trace returns its own status and null cost.
+1. A Postgres list-route test seeds multiple agents and a rerun on one PR. Every in-scope run contributes regardless of start or finish order. A run in another repo or workspace contributes nothing.
 2. Attempts costing `0.00412` (rejected output), `0.00612` (repair) and `0.004` (another chunk) yield `0.01424`, even with a replayed repair entry and a cumulative summary. A provider charge overrides a token estimate. An attempt with both counts and known rates can supply an estimate by itself.
-3. Verify the actual list JSON for a zero-priced run (numeric `0`), a mixed known/unknown run (`cost_usd: null`), a legacy message-only trace (`cost_usd: null`), and a PR without runs (`latest_run: null`). A failure after a fully priced response retains its amount after reload.
+3. Verify numeric `0` for a fully priced zero-cost history and `cost_usd: null` when any run lacks a reliable cost. A PR without runs has `review_cost: null`. A failed or cancelled run with fully priced responses contributes its charge.
 4. Render each state in the table. Assert column placement, visible text and accessible labels, including `$0.014` for `0.01424`, `$0.000` for zero, and `<$0.001` for `0.0001`. Refetching a running row as completed replaces the ellipsis with its amount. Clicking the cost still opens that PR.
 
 5. Opening a saved run shows its own cost in the third Stats tile, including when a newer review exists on the same PR. The tile uses the existing trace request.
+6. Two runs by the same agent display their own charges in the timeline and matching review headers. A run costing USD 0.00126 with 9,119 tokens shows `9,119 tok · $0.0013` in the timeline and `$0.001` in the header. A failed run with no recorded usage displays its error alone.
 
 ## Test verification
 
 | Level and behavior | Setup | Expected result |
 | --- | --- | --- |
 | Run sidebar · selected trace | Open an older trace costing USD 0.06 after a newer run with a different cost. Also open traces with zero, sub-cent and missing charges. | The third Stats tile reads **COST $0.06** for the older run. The other cases show `$0.00`, `<$0.01` and `—` respectively. |
-| API integration · latest start | In Postgres, start a review, then manually rerun it on the same PR. Finish the original run last with a different charge. Read `GET /repos/:id/pulls` while the rerun is running and again after both finish. | The row first reports `running` with null cost, then `done` with only the rerun's charge. |
-| API integration · tied starts | Give two agents' runs on one PR identical `ran_at` values and distinct charges. Insert the greater run ID first. | The list returns the status and charge of the greater run ID. |
-| API integration · missing trace | Seed a PR with an older priced run and a newer failed run without a trace. Include a second PR with no runs. | Both PRs appear. The first has `latest_run: {"status":"failed","cost_usd":null}`. The second has `latest_run: null`. |
+| API integration · all runs | Seed an original run, its rerun, and a run by another agent with charges of `0.005`, `0.01424`, and `0.007`. Give the last two the same start time and finish the original last. Include a priced foreign-workspace run referencing the same PR. | While any run is active, return `running: true` and null cost. Once all local runs settle with traces, return `running: false` and a total of `0.02624`. |
+| API integration · missing trace | Seed a PR with an older priced run and a newer failed run without a trace. Include a second PR with no runs. | Both PRs appear. The first has `review_cost: {"running":false,"cost_usd":null}`. The second has `review_cost: null`. |
 | API integration · attempt accounting | Drive a two-chunk review with a stub provider. The first chunk's rejected response costs `0.00412`, its successful schema-repair retry costs `0.00612`, and the second chunk costs `0.004`. Replay the repair log entry with its original attempt ID and include a cumulative summary. | The saved trace identifies three distinct attempts. The list returns numeric `cost_usd: 0.01424`, counting each dispatched attempt once. |
 | UI · values and states | Render list rows with costs `0.01424`, `0`, `0.0001` and `0.0145`, plus the unknown, running, failed, cancelled and no-run cases from the client table. | Within the corresponding rows, expect `$0.014`, `$0.000`, `<$0.001` and `$0.015`. Each state has the specified cell text, tooltip and accessible label. |
 | UI · layout and navigation | Open the seeded list in a browser with two differently priced PRs. Inspect each cost cell and click the second PR's cost text. | Each value aligns under **COST** between **STATUS** and **UPDATED**, with the theme's muted text color and a monospace font. The text has no separate link or button. Clicking it opens the second PR's detail URL. |

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { PrListItem, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
-import { latestRunsForPulls } from './latest-run.js';
+import { reviewCostsForPulls } from './latest-run.js';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
@@ -117,7 +117,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
     // not surfaced on the list — findings live on the PR detail page.)
     const prIds = rows.map((r) => r.id);
-    const latestRuns = await latestRunsForPulls(container.db, workspaceId, prIds);
+    const reviewCosts = await reviewCostsForPulls(container.db, workspaceId, prIds);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
@@ -155,7 +155,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
-        latest_run: latestRuns.get(r.id) ?? null,
+        review_cost: reviewCosts.get(r.id) ?? null,
       };
     });
   });

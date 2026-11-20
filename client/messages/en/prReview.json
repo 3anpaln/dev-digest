@@ -97,10 +97,8 @@
     },
     "cost": {
       "none": "No review run",
-      "running": "Latest review in progress",
-      "done": "Latest review cost · {amount}",
-      "failed": "Latest review failed · cost {amount}",
-      "cancelled": "Latest review cancelled · cost {amount}",
+      "running": "Review in progress",
+      "total": "Total review cost · {amount}",
       "unavailable": "unavailable"
     },
     "filesCount": "{count} files",
@@ -113,6 +111,9 @@
   "timeline": {
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
-    "deleteRun": "Delete run"
+    "deleteRun": "Delete run",
+    "tokens": "{count} tok",
+    "cost": "Run cost · {amount}",
+    "costUnavailable": "unavailable"
   }
 }

@@ -9,7 +9,7 @@ import { loadConfig } from '../src/platform/config.js';
 import { seed } from '../src/db/seed.js';
 import { MockLLMProvider, MockEmbedder, MockGitClient, MockGitHubClient } from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Review, StructuredRequest } from '@devdigest/shared';
 
 const hasDocker = await dockerAvailable();
@@ -127,7 +127,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
   }
 
-  it('lists the latest started run per scoped PR, including reruns and missing traces', async () => {
+  it('totals all review runs per scoped PR, including reruns and missing traces', async () => {
     const queries: string[] = [];
     const db = drizzle(pg.handle.sql, {
       schema: t.schema,
@@ -150,7 +150,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         expect(queries.filter((q) => q.includes('"agent_runs"'))).toHaveLength(1);
         return PrListItem.array().parse(res.json());
       };
-      expect((await list()).map((item) => item.latest_run)).toEqual([null]);
+      expect((await list()).map((item) => item.review_cost)).toEqual([null]);
       const { id: _id, ...base } = pr;
       await db.insert(t.pullRequests).values(Array.from({ length: 19 }, (_, i) => ({
         ...base, number: pr.number + 1 + i,
@@ -162,50 +162,71 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       const [older] = await db.insert(t.agentRuns).values({
         ...common, status: 'running', ranAt: new Date('2026-01-01'), agentId: agentA!.id,
       }).returning();
-      // Manual rerun and a sibling agent start at the same instant. Insert the winner first.
-      const winner = '00000000-0000-4000-8000-000000000002';
-      const tied = '00000000-0000-4000-8000-000000000001';
+      // Include both a manual rerun and a different agent with the same start time.
+      const rerun = '00000000-0000-4000-8000-000000000002';
+      const otherAgent = '00000000-0000-4000-8000-000000000001';
       const foreignRun = '00000000-0000-4000-8000-000000000003';
+      const siblingRun = '00000000-0000-4000-8000-000000000004';
       await db.insert(t.agentRuns).values([
-        { ...common, id: winner, status: 'running', agentId: agentA!.id },
-        { ...common, id: tied, agentId: agentB!.id },
-        { ...common, prId: sibling.pr.id, ranAt: new Date('2026-01-03') },
+        { ...common, id: rerun, status: 'running', agentId: agentA!.id },
+        { ...common, id: otherAgent, agentId: agentB!.id },
+        { ...common, id: siblingRun, prId: sibling.pr.id, ranAt: new Date('2026-01-03') },
         { ...common, workspaceId: foreignWs!.id, prId: foreign.pr.id },
         // Separate FKs allow a malformed import to reference a PR in another workspace.
         { ...common, id: foreignRun, workspaceId: foreignWs!.id, ranAt: new Date('2026-01-04') },
       ]);
       const usage = (attempt_id: string, cost_usd: number | null) => ({ usage: { attempt_id, cost_usd } });
-      await db.insert(t.runTraces).values([older!.id, tied, foreignRun].map(runId => ({
-        runId, trace: { log: [usage('1', 9)] },
-      })));
+      await db.insert(t.runTraces).values([
+        { runId: older!.id, trace: { log: [usage('1', 0.005)] } },
+        { runId: otherAgent, trace: { log: [usage('1', 0.007)] } },
+        { runId: foreignRun, trace: { log: [usage('1', 9)] } },
+        { runId: siblingRun, trace: { log: [usage('1', 8)] } },
+      ]);
       const selected = async () => {
         const items = await list();
         expect(items).toHaveLength(20);
-        expect(items.filter(item => item.latest_run === null)).toHaveLength(19);
-        return items.find(item => item.id === pr.id)!.latest_run;
+        expect(items.filter(item => item.review_cost === null)).toHaveLength(19);
+        return items.find(item => item.id === pr.id)!.review_cost;
       };
-      expect(await selected()).toEqual({ status: 'running', cost_usd: null });
-      await db.update(t.agentRuns).set({ status: 'failed' }).where(eq(t.agentRuns.id, winner));
-      expect(await selected()).toEqual({ status: 'failed', cost_usd: null });
-      const writeLog = (log: unknown[]) => db.insert(t.runTraces).values({ runId: winner, trace: { log } })
+      expect(await selected()).toEqual({ running: true, cost_usd: null });
+      await db.update(t.agentRuns).set({ status: 'failed' }).where(eq(t.agentRuns.id, rerun));
+      expect(await selected()).toEqual({ running: true, cost_usd: null });
+      await db.update(t.agentRuns).set({ status: 'done' }).where(eq(t.agentRuns.id, older!.id));
+      expect(await selected()).toEqual({ running: false, cost_usd: null });
+      const writeLog = (log: unknown[]) => db.insert(t.runTraces).values({ runId: rerun, trace: { log } })
         .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace: { log } } });
       const repair = usage('2', 0.00612);
       await writeLog([usage('1', 0.00412), repair, usage('3', 0.004), repair, { cost_usd: 0.01424 }]);
-      await db.update(t.agentRuns).set({ status: 'done' }).where(eq(t.agentRuns.id, older!.id));
-      expect(await selected()).toEqual({ status: 'failed', cost_usd: 0.01424 });
+      const total = await selected();
+      expect(total?.running).toBe(false);
+      expect(total?.cost_usd).toBeCloseTo(0.02624, 12);
       const traceCost = async (id: string) => (await app.inject({ url: `/runs/${id}/trace` })).json().stats.cost_usd;
-      expect(await traceCost(older!.id)).toBe(9);
-      expect(await traceCost(winner)).toBe(0.01424);
-      await db.update(t.agentRuns).set({ status: 'running' }).where(eq(t.agentRuns.id, winner));
-      expect(await selected()).toEqual({ status: 'running', cost_usd: null });
-      await db.update(t.agentRuns).set({ status: 'done' }).where(eq(t.agentRuns.id, winner));
+      expect(await traceCost(older!.id)).toBe(0.005);
+      expect(await traceCost(rerun)).toBe(0.01424);
+      const history = await app.inject({ url: `/pulls/${pr.id}/runs` });
+      expect(history.statusCode).toBe(200);
+      const runSummaries = history.json();
+      expect(runSummaries).toHaveLength(3);
+      expect(runSummaries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ run_id: older!.id, cost_usd: 0.005 }),
+        expect.objectContaining({ run_id: rerun, status: 'failed', cost_usd: 0.01424 }),
+        expect.objectContaining({ run_id: otherAgent, cost_usd: 0.007 }),
+      ]));
+      await db.update(t.agentRuns).set({ status: 'running' }).where(eq(t.agentRuns.id, rerun));
+      expect(await selected()).toEqual({ running: true, cost_usd: null });
+      const runningHistory = await app.inject({ url: `/pulls/${pr.id}/runs` });
+      expect(runningHistory.json()).toContainEqual(expect.objectContaining({ run_id: rerun, cost_usd: null }));
+      await db.update(t.agentRuns).set({ status: 'done' }).where(eq(t.agentRuns.id, rerun));
       await writeLog([usage('1', 0)]);
-      expect(await selected()).toEqual({ status: 'done', cost_usd: 0 });
-      expect(await traceCost(winner)).toBe(0);
+      expect(await selected()).toEqual({ running: false, cost_usd: 0.012 });
+      expect(await traceCost(rerun)).toBe(0);
+      await db.update(t.runTraces).set({ trace: { log: [usage('1', 0)] } })
+        .where(inArray(t.runTraces.runId, [older!.id, otherAgent]));
+      expect(await selected()).toEqual({ running: false, cost_usd: 0 });
       for (const log of [[usage('1', 1), usage('2', null)], [{ msg: 'legacy' }]]) {
         await writeLog(log);
-        expect(await selected()).toEqual({ status: 'done', cost_usd: null });
-        expect(await traceCost(winner)).toBeNull();
+        expect(await selected()).toEqual({ running: false, cost_usd: null });
+        expect(await traceCost(rerun)).toBeNull();
       }
       expect((await app.inject({ url: `/repos/${foreign.repo.id}/pulls` })).statusCode).toBe(404);
       expect(llm.calls).toHaveLength(0);
@@ -267,7 +288,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       release();
       await vi.waitFor(async () => {
         const res = await app.inject({ url: `/repos/${repo.id}/pulls` });
-        expect(res.json()[0].latest_run).toEqual({ status, cost_usd: 0.001 });
+        expect(res.json()[0].review_cost).toEqual({ running: false, cost_usd: 0.001 });
       });
       const trace = (await app.inject({ url: `/runs/${runId}/trace` })).json();
       expect(trace.log.filter((line: { usage?: unknown }) => line.usage)).toEqual([

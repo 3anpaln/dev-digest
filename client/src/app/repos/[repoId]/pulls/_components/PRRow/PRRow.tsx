@@ -14,23 +14,22 @@ const costFormat = {
   style: "currency", currency: "USD", minimumFractionDigits: 3, maximumFractionDigits: 3,
 } as const;
 
-function RunCost({ run }: { run: PrListItem["latest_run"] }) {
+function ReviewCost({ reviewCost }: { reviewCost: PrListItem["review_cost"] }) {
   const t = useTranslations("prReview.list.cost");
   const format = useFormatter();
   let value = "—";
   let label = t("none");
-  if (run?.status === "running") {
+  if (reviewCost?.running) {
     value = "…";
     label = t("running");
-  } else if (run) {
-    const cost = run.cost_usd;
+  } else if (reviewCost) {
+    const cost = reviewCost.cost_usd;
     if (cost != null) {
       value = cost > 0 && cost < 0.0005
         ? `<${format.number(0.001, costFormat)}`
         : format.number(cost, costFormat);
     }
-    const state = run.status === "failed" || run.status === "cancelled" ? run.status : "done";
-    label = t(state, { amount: cost == null ? t("unavailable") : value });
+    label = t("total", { amount: cost == null ? t("unavailable") : value });
   }
   return (
     <span className="mono" style={s.rowNumber} title={label}>
@@ -88,7 +87,7 @@ export function PRRow({ pr, repoId }: { pr: PrListItem; repoId: string }) {
           {t(`list.status.${st.labelKey}`)}
         </Badge>
       </div>
-      <RunCost run={pr.latest_run} />
+      <ReviewCost reviewCost={pr.review_cost} />
       <div style={s.updatedCell}>{relativeTime(pr.updated_at)}</div>
     </div>
   );

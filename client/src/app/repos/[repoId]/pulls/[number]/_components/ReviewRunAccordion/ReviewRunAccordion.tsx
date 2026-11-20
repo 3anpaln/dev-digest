@@ -10,6 +10,7 @@ import { Icon, Badge } from "@devdigest/ui";
 import type { ReviewRecord, Verdict } from "@devdigest/shared";
 import { FindingsPanel } from "../FindingsPanel";
 import { VerdictBanner } from "../VerdictBanner";
+import { RunCostAmount } from "../RunCostAmount";
 import { useDeleteReview } from "../../../../../../../lib/hooks/reviews";
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -25,6 +26,7 @@ function formatWhen(iso: string): string {
 
 export function ReviewRunAccordion({
   review,
+  costUsd,
   prId,
   defaultOpen = false,
   repoFullName,
@@ -33,6 +35,7 @@ export function ReviewRunAccordion({
   targetNonce = 0,
 }: {
   review: ReviewRecord;
+  costUsd: number | null;
   prId: string;
   defaultOpen?: boolean;
   repoFullName?: string | null;
@@ -103,6 +106,7 @@ export function ReviewRunAccordion({
             {review.score}
           </Badge>
         )}
+        <RunCostAmount cost={costUsd} digits={3} />
         <span className="mono" style={{ fontSize: 12, color: "var(--text-muted)" }}>
           {formatWhen(review.created_at)}
         </span>

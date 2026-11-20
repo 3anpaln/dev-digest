@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { AttemptUsage, type PrListItem } from '@devdigest/shared';
 import type { Db } from '../../db/client.js';
 import { agentRuns, runTraces } from '../../db/schema.js';
@@ -28,27 +28,28 @@ export function loggedCost(log: unknown, runId?: string): number | null {
   return attempts.size && Number.isFinite(total) ? total : null;
 }
 
-export async function latestRunsForPulls(db: Db, workspaceId: string, prIds: string[]) {
-  const runs = new Map<string, NonNullable<PrListItem['latest_run']>>();
-  if (!prIds.length) return runs;
+export async function reviewCostsForPulls(db: Db, workspaceId: string, prIds: string[]) {
+  const totals = new Map<string, NonNullable<PrListItem['review_cost']>>();
+  if (!prIds.length) return totals;
 
-  const latest = db.selectDistinctOn([agentRuns.prId], {
-    id: agentRuns.id, prId: agentRuns.prId, status: agentRuns.status,
-  }).from(agentRuns)
-    .where(and(eq(agentRuns.workspaceId, workspaceId), inArray(agentRuns.prId, prIds)))
-    .orderBy(agentRuns.prId, desc(agentRuns.ranAt), desc(agentRuns.id))
-    .as('latest');
-  // Keep the workspace filter in the run selection above. A trace has no
-  // separate workspace: its primary key is a foreign key to the globally
-  // unique agent_runs.id, so it belongs to exactly that run's workspace.
+  // A trace inherits its workspace from its run through the run_id foreign key.
   const rows = await db.select({
-    runId: latest.id,
-    prId: latest.prId,
-    status: latest.status,
+    runId: agentRuns.id,
+    prId: agentRuns.prId,
+    status: agentRuns.status,
     log: sql`${runTraces.trace} -> ${'log'}::text`,
-  }).from(latest).leftJoin(runTraces, eq(runTraces.runId, latest.id));
+  }).from(agentRuns)
+    .leftJoin(runTraces, eq(runTraces.runId, agentRuns.id))
+    .where(and(eq(agentRuns.workspaceId, workspaceId), inArray(agentRuns.prId, prIds)));
   for (const { runId, prId, status, log } of rows) {
-    runs.set(prId!, { status, cost_usd: status === 'running' ? null : loggedCost(log, runId) });
+    if (prId === null) continue;
+    const total = totals.get(prId) ?? { running: false, cost_usd: 0 };
+    const running = status === 'running';
+    const cost = running ? null : loggedCost(log, runId);
+    const sum = total.cost_usd === null || cost === null ? null : total.cost_usd + cost;
+    total.running ||= running;
+    total.cost_usd = sum !== null && Number.isFinite(sum) ? sum : null;
+    totals.set(prId, total);
   }
-  return runs;
+  return totals;
 }

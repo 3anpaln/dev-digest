@@ -1,9 +1,10 @@
 "use client";
 
 import React from "react";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { Badge, Icon, CircularScore, type IconName } from "@devdigest/ui";
 import type { RunSummary, PrCommit } from "@devdigest/shared";
+import { RunCostAmount } from "../RunCostAmount";
 
 /**
  * PR timeline — every agent run interleaved with the PR's commits, newest-first
@@ -100,6 +101,7 @@ export function RunHistory({
   onDelete?: (runId: string) => void;
 }) {
   const t = useTranslations("prReview");
+  const format = useFormatter();
   if (runs.length === 0 && commits.length === 0) return null;
 
   const items: TimelineItem[] = [
@@ -149,6 +151,8 @@ export function RunHistory({
         const r = item.run;
         const o = outcomeOf(r);
         const settled = r.status === "done";
+        const tokens = r.tokens_in != null && r.tokens_out != null ? r.tokens_in + r.tokens_out : null;
+        const showTokens = tokens != null && (settled || tokens > 0);
         return (
           <div key={`run:${r.run_id}`} style={rowStyle}>
             <Badge color={o.color} bg={o.bg} icon={o.icon}>
@@ -197,6 +201,12 @@ export function RunHistory({
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
               {r.ran_at && <span>{new Date(r.ran_at).toLocaleTimeString()}</span>}
+              {r.status !== "running" && (settled || showTokens || r.cost_usd != null) && (
+                <span className="mono">
+                  {showTokens && <>{t("timeline.tokens", { count: format.number(tokens) })} · </>}
+                  <RunCostAmount cost={r.cost_usd} digits={4} />
+                </span>
+              )}
             </div>
             <button
               type="button"
