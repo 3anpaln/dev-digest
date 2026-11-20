@@ -175,6 +175,14 @@ export const PrMeta = z.object({
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 
+export const PrListItem = PrMeta.extend({
+  latest_run: z.object({
+    status: z.string().nullable(),
+    cost_usd: z.number().finite().nonnegative().nullable(),
+  }).nullable(),
+});
+export type PrListItem = z.infer<typeof PrListItem>;
+
 export const PrFile = z.object({
   path: z.string(),
   additions: z.number().int(),

@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { AttemptCosts, ReviewOpenAIClient } from '@devdigest/reviewer-core';
 import type {
   LLMProvider,
   ModelInfo,
@@ -46,10 +46,10 @@ function tuningParams(
  */
 export class OpenAIProvider implements LLMProvider {
   readonly id = 'openai' as const;
-  private client: OpenAI;
+  private client: ReviewOpenAIClient;
 
   constructor(apiKey: string) {
-    this.client = new OpenAI({ apiKey });
+    this.client = new ReviewOpenAIClient({ apiKey });
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -92,6 +92,8 @@ export class OpenAIProvider implements LLMProvider {
     let tokensIn = 0;
     let tokensOut = 0;
     let lastRaw = '';
+    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost);
+    const options = { timeout: req.timeoutMs ?? DEFAULT_TIMEOUT, onAttemptCost: costs.record };
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       const res = await withRetry(() =>
@@ -104,9 +106,14 @@ export class OpenAIProvider implements LLMProvider {
               type: 'json_schema',
               json_schema: { name: req.schemaName, schema: jsonSchema.schema, strict: true },
             },
-          }),
-          req.timeoutMs ?? DEFAULT_TIMEOUT,
-        ),
+          }, options),
+          options.timeout,
+        ).catch(costs.failed),
+      );
+      costs.response(
+        (res.usage as { cost?: number } | null)?.cost,
+        res.usage?.prompt_tokens,
+        res.usage?.completion_tokens,
       );
       lastRaw = res.choices?.[0]?.message?.content ?? '';
       tokensIn += res.usage?.prompt_tokens ?? 0;
@@ -119,7 +126,7 @@ export class OpenAIProvider implements LLMProvider {
           model: req.model,
           tokensIn,
           tokensOut,
-          costUsd: estimateCost(req.model, tokensIn, tokensOut),
+          costUsd: costs.total,
           raw: lastRaw,
           attempts: attempt,
         };

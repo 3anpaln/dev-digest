@@ -26,7 +26,7 @@ export class RunBus {
   /** Request cancellation of an in-flight run. The runner checks `isCancelled`
    *  at its next checkpoint (between map-reduce files) and stops. */
   cancel(runId: string): void {
-    this.cancelled.add(runId);
+    if (!this.completed.has(runId)) this.cancelled.add(runId);
   }
 
   /** Whether cancellation has been requested for a run. */
@@ -72,11 +72,15 @@ export class RunBus {
     return this.buffers.get(runId) ?? [];
   }
 
-  /** Signal completion and release buffers/emitters. */
+  /** The executor has stopped and can no longer dispatch another attempt. */
   complete(runId: string): void {
+    this.cancelled.delete(runId);
+    this.closeStream(runId);
+  }
+
+  closeStream(runId: string): void {
     const e = this.emitters.get(runId);
     this.completed.add(runId);
-    this.cancelled.delete(runId);
     e?.emit('done');
     // Keep the buffer briefly available for late subscribers; clear emitter.
     this.emitters.delete(runId);

@@ -9,8 +9,15 @@ import { z } from 'zod';
 export const RunEventKind = z.enum(['info', 'tool', 'result', 'error']);
 export type RunEventKind = z.infer<typeof RunEventKind>;
 
-/** A single live-log line. `t` = elapsed timestamp string (e.g. "00.31"). */
+/** Charge for a single dispatched review-model attempt. */
+export const AttemptUsage = z.object({
+  attempt_id: z.string().min(1),
+  cost_usd: z.number().finite().nonnegative().nullable(),
+});
+
+/** One persisted log line. Historic traces have no usage metadata. */
 export const RunLogLine = z.object({
+  usage: AttemptUsage.optional(),
   t: z.string(),
   kind: RunEventKind,
   msg: z.string(),
@@ -59,6 +66,8 @@ export const MemoryPulled = z.object({
 export type MemoryPulled = z.infer<typeof MemoryPulled>;
 
 export const RunStats = z.object({
+  // Included on trace reads. Stored trace documents can predate cost reporting.
+  cost_usd: z.number().finite().nonnegative().nullish(),
   duration_ms: z.number().int(),
   tokens_in: z.number().int(),
   tokens_out: z.number().int(),

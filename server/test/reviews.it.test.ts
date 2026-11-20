@@ -1,13 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { PrListItem } from '@devdigest/shared';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { waitForPrRuns } from './helpers/runs.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { seed } from '../src/db/seed.js';
-import { MockLLMProvider, MockEmbedder, MockGitClient } from '../src/adapters/mocks.js';
+import { MockLLMProvider, MockEmbedder, MockGitClient, MockGitHubClient } from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
-import type { Review } from '@devdigest/shared';
+import type { Review, StructuredRequest } from '@devdigest/shared';
 
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
@@ -124,6 +126,134 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
   }
 
+  it('lists the latest started run per scoped PR, including reruns and missing traces', async () => {
+    const queries: string[] = [];
+    const db = drizzle(pg.handle.sql, {
+      schema: t.schema,
+      logger: { logQuery: (query) => queries.push(query) },
+    });
+    const llm = new MockLLMProvider('openai');
+    const app = await buildApp({ config: config(), db, overrides: {
+      github: new MockGitHubClient({ pulls: [] }), llm: { openai: llm },
+    } });
+    try {
+      await app.ready();
+      const { repo, pr } = await setupRepoAndPr(db, workspaceId);
+      const sibling = await setupRepoAndPr(db, workspaceId);
+      const [foreignWs] = await db.insert(t.workspaces).values({ name: 'Other' }).returning();
+      const foreign = await setupRepoAndPr(db, foreignWs!.id);
+      const list = async () => {
+        queries.length = 0;
+        const res = await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` });
+        expect(res.statusCode).toBe(200);
+        expect(queries.filter((q) => q.includes('"agent_runs"'))).toHaveLength(1);
+        return PrListItem.array().parse(res.json());
+      };
+      expect((await list()).map((item) => item.latest_run)).toEqual([null]);
+      const { id: _id, ...base } = pr;
+      await db.insert(t.pullRequests).values(Array.from({ length: 19 }, (_, i) => ({
+        ...base, number: pr.number + 1 + i,
+      })));
+      const common = { workspaceId, prId: pr.id, status: 'done', ranAt: new Date('2026-01-02') };
+      const [agentA, agentB] = await db.insert(t.agents).values(['A', 'B'].map(name => ({
+        workspaceId, name, provider: 'openai' as const, model: 'test', systemPrompt: 'Review',
+      }))).returning();
+      const [older] = await db.insert(t.agentRuns).values({
+        ...common, status: 'running', ranAt: new Date('2026-01-01'), agentId: agentA!.id,
+      }).returning();
+      // Manual rerun and a sibling agent start at the same instant. Insert the winner first.
+      const winner = '00000000-0000-4000-8000-000000000002';
+      const tied = '00000000-0000-4000-8000-000000000001';
+      await db.insert(t.agentRuns).values([
+        { ...common, id: winner, status: 'running', agentId: agentA!.id },
+        { ...common, id: tied, agentId: agentB!.id },
+        { ...common, prId: sibling.pr.id, ranAt: new Date('2026-01-03') },
+        { ...common, workspaceId: foreignWs!.id, prId: foreign.pr.id },
+        // Separate FKs allow a malformed import to reference a PR in another workspace.
+        { ...common, workspaceId: foreignWs!.id, ranAt: new Date('2026-01-04') },
+      ]);
+      const usage = (attempt_id: string, cost_usd: number | null) => ({ usage: { attempt_id, cost_usd } });
+      await db.insert(t.runTraces).values([older!.id, tied].map(runId => ({
+        runId, trace: { log: [usage('1', 9)] },
+      })));
+      const selected = async () => {
+        const items = await list();
+        expect(items).toHaveLength(20);
+        expect(items.filter(item => item.latest_run === null)).toHaveLength(19);
+        return items.find(item => item.id === pr.id)!.latest_run;
+      };
+      expect(await selected()).toEqual({ status: 'running', cost_usd: null });
+      await db.update(t.agentRuns).set({ status: 'failed' }).where(eq(t.agentRuns.id, winner));
+      expect(await selected()).toEqual({ status: 'failed', cost_usd: null });
+      const writeLog = (log: unknown[]) => db.insert(t.runTraces).values({ runId: winner, trace: { log } })
+        .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace: { log } } });
+      const repair = usage('2', 0.00612);
+      await writeLog([usage('1', 0.00412), repair, usage('3', 0.004), repair, { cost_usd: 0.01424 }]);
+      await db.update(t.agentRuns).set({ status: 'done' }).where(eq(t.agentRuns.id, older!.id));
+      expect(await selected()).toEqual({ status: 'failed', cost_usd: 0.01424 });
+      const traceCost = async (id: string) => (await app.inject({ url: `/runs/${id}/trace` })).json().stats.cost_usd;
+      expect(await traceCost(older!.id)).toBe(9);
+      expect(await traceCost(winner)).toBe(0.01424);
+      await db.update(t.agentRuns).set({ status: 'running' }).where(eq(t.agentRuns.id, winner));
+      expect(await selected()).toEqual({ status: 'running', cost_usd: null });
+      await db.update(t.agentRuns).set({ status: 'done' }).where(eq(t.agentRuns.id, winner));
+      await writeLog([usage('1', 0)]);
+      expect(await selected()).toEqual({ status: 'done', cost_usd: 0 });
+      expect(await traceCost(winner)).toBe(0);
+      for (const log of [[usage('1', 1), usage('2', null)], [{ msg: 'legacy' }]]) {
+        await writeLog(log);
+        expect(await selected()).toEqual({ status: 'done', cost_usd: null });
+        expect(await traceCost(winner)).toBeNull();
+      }
+      expect((await app.inject({ url: `/repos/${foreign.repo.id}/pulls` })).statusCode).toBe(404);
+      expect(llm.calls).toHaveLength(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(['failed', 'cancelled'] as const)('retains priced attempts in the saved %s trace', async (status) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fixture = status === 'failed' ? {} : REVIEW_FIXTURE;
+    class PausedProvider extends MockLLMProvider {
+      override async completeStructured<T>(req: StructuredRequest<T>) {
+        started();
+        await gate;
+        return super.completeStructured(req);
+      }
+    }
+    const started = vi.fn();
+    const llm = new PausedProvider('openai', { structured: fixture });
+    const app = await buildApp({ config: config(), db: pg.handle.db, overrides: {
+      github: new MockGitHubClient({ pulls: [] }), llm: { openai: llm },
+      git: new MockGitClient({ diff: DIFF + '\n' + DIFF.replaceAll('config.ts', 'second.ts') }),
+    } });
+    try {
+      const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = (await app.inject({ method: 'POST', url: '/agents', payload: {
+        name: 'Map', provider: 'openai', model: 'test', system_prompt: 'Review', strategy: 'map-reduce',
+      } })).json();
+      const trigger = await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`,
+        payload: { agentId: agent.id } });
+      const runId = trigger.json().runs[0].run_id;
+      await vi.waitFor(() => expect(started).toHaveBeenCalledTimes(1));
+      if (status === 'cancelled') await app.inject({ method: 'POST', url: `/runs/${runId}/cancel` });
+      release();
+      await vi.waitFor(async () => {
+        const res = await app.inject({ url: `/repos/${repo.id}/pulls` });
+        expect(res.json()[0].latest_run).toEqual({ status, cost_usd: 0.001 });
+      });
+      const trace = (await app.inject({ url: `/runs/${runId}/trace` })).json();
+      expect(trace.log.filter((line: { usage?: unknown }) => line.usage)).toEqual([
+        expect.objectContaining({ usage: { attempt_id: '1', cost_usd: 0.001 } }),
+      ]);
+    } finally {
+      release();
+      await app.close();
+    }
+  });
+
   it('agents CRUD', async () => {
     const app = await appWith(REVIEW_FIXTURE);
 
@@ -201,7 +331,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     const trace = (await app.inject({ method: 'GET', url: `/runs/${runId}/trace` })).json();
     expect(trace.config.model).toBe('gpt-4.1');
     expect(trace.stats.grounding).toBe('1/2 passed');
-    expect(trace.log.length).toBeGreaterThan(0);
+    expect(trace.log).toContainEqual(expect.objectContaining({ usage: { attempt_id: '1', cost_usd: 0.001 } }));
 
     // agent_runs row populated for A5 to aggregate
     const [run] = await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.id, runId));

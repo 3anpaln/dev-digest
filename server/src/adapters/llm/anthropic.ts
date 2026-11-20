@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { AttemptCosts } from '@devdigest/reviewer-core';
 import type {
   LLMProvider,
   ModelInfo,
@@ -12,6 +13,16 @@ import { withRetry, withTimeout } from '../../platform/resilience.js';
 import { toJsonSchema, parseWithRepair } from '../../platform/structured.js';
 import { estimateCost } from './pricing.js';
 import { ExternalServiceError } from '../../platform/errors.js';
+
+class ReviewAnthropicClient extends Anthropic {
+  override buildRequest(
+    options: Parameters<Anthropic['buildRequest']>[0] & { onAttemptCost?: (usd: null) => void },
+    props?: { retryCount?: number },
+  ) {
+    if (props?.retryCount) options.onAttemptCost?.(null);
+    return super.buildRequest(options, props);
+  }
+}
 
 const DEFAULT_TIMEOUT = 60_000;
 const DEFAULT_MAX_TOKENS = 4096;
@@ -43,7 +54,7 @@ export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new ReviewAnthropicClient({ apiKey });
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -95,6 +106,8 @@ export class AnthropicProvider implements LLMProvider {
     let tokensIn = 0;
     let tokensOut = 0;
     let lastRaw = '';
+    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost);
+    const options = { timeout: req.timeoutMs ?? DEFAULT_TIMEOUT, onAttemptCost: costs.record };
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       const res = await withRetry(() =>
@@ -113,12 +126,17 @@ export class AnthropicProvider implements LLMProvider {
               },
             ],
             tool_choice: { type: 'tool', name: toolName },
-          }),
-          req.timeoutMs ?? DEFAULT_TIMEOUT,
-        ),
+          }, options),
+          options.timeout,
+        ).catch(costs.failed),
       );
-      tokensIn += res.usage.input_tokens;
-      tokensOut += res.usage.output_tokens;
+      costs.response(
+        (res.usage as { cost?: number } | null)?.cost,
+        res.usage?.input_tokens,
+        res.usage?.output_tokens,
+      );
+      tokensIn += res.usage?.input_tokens ?? 0;
+      tokensOut += res.usage?.output_tokens ?? 0;
 
       const toolUse = res.content.find(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
@@ -132,7 +150,7 @@ export class AnthropicProvider implements LLMProvider {
           model: req.model,
           tokensIn,
           tokensOut,
-          costUsd: estimateCost(req.model, tokensIn, tokensOut),
+          costUsd: costs.total,
           raw: lastRaw,
           attempts: attempt,
         };

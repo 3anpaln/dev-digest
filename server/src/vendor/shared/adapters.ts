@@ -53,6 +53,8 @@ export interface CompletionResult {
  * tool / json_schema. `maxRetries` controls reprompt-on-error.
  */
 export interface StructuredRequest<T> {
+  /** Normalized USD for each dispatched model attempt, including retries. */
+  onAttemptCost?: (costUsd: number | null) => void;
   model: string;
   schema: z.ZodType<T>;
   schemaName: string;

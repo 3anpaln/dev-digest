@@ -22,6 +22,7 @@ export type {
   Repo,
   RepoInput,
   PrMeta,
+  PrListItem,
   PrDetail,
   PrFile,
   PrCommit,

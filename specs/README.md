@@ -10,3 +10,5 @@ Follow the package that owns the observable behavior.
 | Browser journeys on a seeded stack | [Executable browser specs](../e2e/specs/) |
 
 Cross-package acceptance criteria belong here. The [roadmap](../README.md#roadmap) describes planned milestones.
+
+- [Latest review cost on PR cards](pr-card-run-cost.md)

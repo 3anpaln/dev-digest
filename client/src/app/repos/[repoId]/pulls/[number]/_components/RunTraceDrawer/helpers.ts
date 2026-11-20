@@ -22,6 +22,14 @@ export function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+export function formatRunCost(cost: number | null | undefined): string {
+  if (cost == null) return "—";
+  if (cost > 0 && cost < 0.01) return "<$0.01";
+  return usd.format(cost);
+}
+
 /** Token in→out summary (e.g. "12k→1.5k"). */
 export function formatTokens(tokensIn: number, tokensOut: number): string {
   return `${(tokensIn / 1000).toFixed(0)}k→${(tokensOut / 1000).toFixed(1)}k`;

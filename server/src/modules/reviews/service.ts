@@ -6,6 +6,7 @@ import { ReviewRepository } from './repository.js';
 import { type ReviewDto, type ReviewDtoFinding } from './helpers.js';
 import { ReviewRunExecutor, type Logger } from './run-executor.js';
 import { actOnFinding as actOnFindingImpl } from './findings.js';
+import { loggedCost } from '../pulls/latest-run.js';
 import { reviewToDto } from './helpers.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
@@ -86,7 +87,7 @@ export class ReviewService {
     this.publish(runId, 'info', 'Cancellation requested — stopping…');
     this.container.runBus.cancel(runId);
     await this.repo.cancelRunIfRunning(runId);
-    this.container.runBus.complete(runId);
+    this.container.runBus.closeStream(runId);
   }
 
   /** Reap runs left 'running' by a previous (now-dead) process. Called on boot. */
@@ -174,6 +175,8 @@ export class ReviewService {
   }
 
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {
-    return this.repo.getRunTrace(runId);
+    const trace = await this.repo.getRunTrace(runId);
+    if (!trace) return undefined;
+    return { ...trace, stats: { ...trace.stats, cost_usd: loggedCost(trace.log) } };
   }
 }
