@@ -13,10 +13,10 @@ import { toJsonSchema, parseWithRepair } from './structured.js';
 /** An SDK transport retry means the prior attempt's charge is unknown. */
 export class ReviewOpenAIClient extends OpenAI {
   override buildRequest(
-    options: Parameters<OpenAI['buildRequest']>[0] & { onAttemptCost?: (usd: null) => void },
+    options: Parameters<OpenAI['buildRequest']>[0] & { beforeAttempt?: (retryCount?: number) => void },
     props?: { retryCount?: number },
   ) {
-    if (props?.retryCount) options.onAttemptCost?.(null);
+    options.beforeAttempt?.(props?.retryCount);
     return super.buildRequest(options, props);
   }
 }
@@ -74,8 +74,8 @@ export class OpenRouterProvider implements LLMProvider {
     const messages = [...req.messages];
     let tokensIn = 0;
     let tokensOut = 0;
-    const costs = new AttemptCosts(req.model, this.estimateCost, req.onAttemptCost);
-    const options = { timeout: req.timeoutMs ?? this.client.timeout, onAttemptCost: costs.record };
+    const costs = new AttemptCosts(req.model, this.estimateCost, req.onAttemptCost, req.checkCancelled);
+    const options = { timeout: req.timeoutMs ?? this.client.timeout, beforeAttempt: costs.beforeAttempt };
     let lastRaw = '';
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {

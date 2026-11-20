@@ -176,6 +176,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       model: input.model,
       schema: ReviewSchema,
       schemaName: 'Review',
+      checkCancelled: input.checkCancelled,
       onAttemptCost: (usd) => {
         const usage = { attempt_id: String(++attemptId), cost_usd: usd };
         emit('result', 'Model attempt usage', { usage });

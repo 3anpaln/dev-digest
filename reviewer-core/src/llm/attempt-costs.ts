@@ -1,12 +1,22 @@
 /** Cost accounting for one structured request, which may dispatch several attempts. */
 export class AttemptCosts {
   total: number | null = 0;
+  private blockedBeforeDispatch = false;
 
   constructor(
     private readonly model: string,
     private readonly estimate?: (model: string, input: number, output: number) => number | null,
     private readonly onAttemptCost?: (usd: number | null) => void,
+    private readonly checkCancelled?: () => void,
   ) {}
+
+  beforeAttempt = (retryCount = 0): void => {
+    // A transport retry follows an already dispatched attempt of unknown cost.
+    if (retryCount > 0) this.record(null);
+    this.blockedBeforeDispatch = true;
+    this.checkCancelled?.();
+    this.blockedBeforeDispatch = false;
+  };
 
   record = (usd: number | null): void => {
     const cost = validCost(usd) ? usd : null;
@@ -25,7 +35,7 @@ export class AttemptCosts {
   }
 
   failed = (error: unknown): never => {
-    this.record(null);
+    if (!this.blockedBeforeDispatch) this.record(null);
     throw error;
   };
 }

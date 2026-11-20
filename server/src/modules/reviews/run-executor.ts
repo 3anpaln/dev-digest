@@ -207,7 +207,8 @@ export class ReviewRunExecutor {
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
         checkCancelled: () => {
-          if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
+          const bus = this.container.runBus;
+          if (bus.isCancelled(runId) || bus.isComplete(runId)) throw new RunCancelledError();
         },
       });
       const { tokensIn, tokensOut, grounding } = outcome;

@@ -16,10 +16,10 @@ import { ExternalServiceError } from '../../platform/errors.js';
 
 class ReviewAnthropicClient extends Anthropic {
   override buildRequest(
-    options: Parameters<Anthropic['buildRequest']>[0] & { onAttemptCost?: (usd: null) => void },
+    options: Parameters<Anthropic['buildRequest']>[0] & { beforeAttempt?: (retryCount?: number) => void },
     props?: { retryCount?: number },
   ) {
-    if (props?.retryCount) options.onAttemptCost?.(null);
+    options.beforeAttempt?.(props?.retryCount);
     return super.buildRequest(options, props);
   }
 }
@@ -106,8 +106,8 @@ export class AnthropicProvider implements LLMProvider {
     let tokensIn = 0;
     let tokensOut = 0;
     let lastRaw = '';
-    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost);
-    const options = { timeout: req.timeoutMs ?? DEFAULT_TIMEOUT, onAttemptCost: costs.record };
+    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost, req.checkCancelled);
+    const options = { timeout: req.timeoutMs ?? DEFAULT_TIMEOUT, beforeAttempt: costs.beforeAttempt };
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       const res = await withRetry(() =>
