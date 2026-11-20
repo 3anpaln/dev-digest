@@ -33,6 +33,9 @@ export async function latestRunsForPulls(db: Db, workspaceId: string, prIds: str
     .where(and(eq(agentRuns.workspaceId, workspaceId), inArray(agentRuns.prId, prIds)))
     .orderBy(agentRuns.prId, desc(agentRuns.ranAt), desc(agentRuns.id))
     .as('latest');
+  // Keep the workspace filter in the run selection above. A trace has no
+  // separate workspace: its primary key is a foreign key to the globally
+  // unique agent_runs.id, so it belongs to exactly that run's workspace.
   const rows = await db.select({
     prId: latest.prId, status: latest.status, log: sql`${runTraces.trace} -> 'log'`,
   }).from(latest).leftJoin(runTraces, eq(runTraces.runId, latest.id));

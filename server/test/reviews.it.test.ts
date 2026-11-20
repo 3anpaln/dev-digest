@@ -164,16 +164,17 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       // Manual rerun and a sibling agent start at the same instant. Insert the winner first.
       const winner = '00000000-0000-4000-8000-000000000002';
       const tied = '00000000-0000-4000-8000-000000000001';
+      const foreignRun = '00000000-0000-4000-8000-000000000003';
       await db.insert(t.agentRuns).values([
         { ...common, id: winner, status: 'running', agentId: agentA!.id },
         { ...common, id: tied, agentId: agentB!.id },
         { ...common, prId: sibling.pr.id, ranAt: new Date('2026-01-03') },
         { ...common, workspaceId: foreignWs!.id, prId: foreign.pr.id },
         // Separate FKs allow a malformed import to reference a PR in another workspace.
-        { ...common, workspaceId: foreignWs!.id, ranAt: new Date('2026-01-04') },
+        { ...common, id: foreignRun, workspaceId: foreignWs!.id, ranAt: new Date('2026-01-04') },
       ]);
       const usage = (attempt_id: string, cost_usd: number | null) => ({ usage: { attempt_id, cost_usd } });
-      await db.insert(t.runTraces).values([older!.id, tied].map(runId => ({
+      await db.insert(t.runTraces).values([older!.id, tied, foreignRun].map(runId => ({
         runId, trace: { log: [usage('1', 9)] },
       })));
       const selected = async () => {

@@ -57,4 +57,27 @@ describe("FindingCard (smoke, both themes)", () => {
     fireEvent.click(screen.getByText("Dismiss"));
     expect(onAction).toHaveBeenCalledWith("dismiss");
   });
+
+  it("updates focus without conflicting border styles", () => {
+    const error = vi.spyOn(console, "error");
+    const card = (focused: boolean) => (
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <FindingCard f={FINDING} focused={focused} onAction={() => {}} />
+      </NextIntlClientProvider>
+    );
+    try {
+      const { container, rerender } = render(card(false));
+      const element = container.querySelector<HTMLElement>("[data-finding-id=f1]")!;
+      const left = element.style.borderLeft;
+      rerender(card(true));
+      expect(element.style.boxShadow).not.toBe("none");
+      expect(element.style.borderLeft).toBe(left);
+      rerender(card(false));
+      expect(element.style.boxShadow).toBe("none");
+      expect(element.style.borderLeft).toBe(left);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+    }
+  });
 });

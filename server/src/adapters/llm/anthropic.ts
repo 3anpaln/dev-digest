@@ -130,13 +130,20 @@ export class AnthropicProvider implements LLMProvider {
           options.timeout,
         ).catch(costs.failed),
       );
+      const usage = res.usage;
+      if (usage == null) {
+        console.warn('Anthropic structured response is missing usage metadata', {
+          model: req.model,
+          attempt,
+        });
+      }
       costs.response(
-        (res.usage as { cost?: number } | null)?.cost,
-        res.usage?.input_tokens,
-        res.usage?.output_tokens,
+        (usage as { cost?: number } | null)?.cost,
+        usage?.input_tokens,
+        usage?.output_tokens,
       );
-      tokensIn += res.usage?.input_tokens ?? 0;
-      tokensOut += res.usage?.output_tokens ?? 0;
+      tokensIn += usage?.input_tokens ?? 0;
+      tokensOut += usage?.output_tokens ?? 0;
 
       const toolUse = res.content.find(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
