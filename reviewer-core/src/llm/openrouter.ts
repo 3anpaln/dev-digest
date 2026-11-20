@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import OpenAI, { type ClientOptions } from 'openai';
 import { AttemptCosts } from './attempt-costs.js';
 import type {
   LLMProvider,
@@ -35,10 +35,11 @@ export class ReviewOpenAIClient extends OpenAI {
  */
 
 const NOT_SUPPORTED = 'OpenRouterProvider only implements completeStructured';
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 export interface OpenRouterProviderOptions {
-  /** OpenAI-compatible base URL (default: OpenRouter). */
-  baseURL?: string;
+  /** Trusted transport injection for tests. Requests still target OpenRouter. */
+  fetch?: ClientOptions['fetch'];
   /** Provider id for traces/gating (default 'openrouter'). */
   id?: 'openai' | 'openrouter';
   /** Per-request timeout (ms) — the SDK retries on timeout/5xx/429 with backoff. */
@@ -51,18 +52,18 @@ export interface OpenRouterProviderOptions {
 export class OpenRouterProvider implements LLMProvider {
   readonly id: 'openai' | 'openrouter';
   private client: OpenAI;
-  private baseURL: string;
   private apiKey: string;
   private estimateCost?: OpenRouterProviderOptions['estimateCost'];
 
   constructor(apiKey: string, opts: OpenRouterProviderOptions = {}) {
     this.id = opts.id ?? 'openrouter';
     this.apiKey = apiKey;
-    this.baseURL = opts.baseURL ?? 'https://openrouter.ai/api/v1';
     this.estimateCost = opts.estimateCost;
     this.client = new ReviewOpenAIClient({
       apiKey,
-      baseURL: this.baseURL,
+      // Pin the credentialed endpoint, including when OPENAI_BASE_URL is set.
+      baseURL: OPENROUTER_BASE_URL,
+      fetch: opts.fetch,
       timeout: opts.timeoutMs ?? 90_000,
       maxRetries: opts.maxRetries ?? 2,
     });
@@ -135,7 +136,7 @@ export class OpenRouterProvider implements LLMProvider {
    * converted from per-token to USD per 1M tokens; cheapest output first.
    */
   async listModels(): Promise<ModelInfo[]> {
-    const res = await fetch(`${this.baseURL}/models`, {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/models`, {
       headers: { Authorization: `Bearer ${this.apiKey}` },
     });
     if (!res.ok) throw new Error(`OpenRouter /models returned ${res.status}`);

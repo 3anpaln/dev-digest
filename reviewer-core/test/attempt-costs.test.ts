@@ -1,6 +1,3 @@
-import { createServer } from 'node:http';
-import { once } from 'node:events';
-import type { AddressInfo } from 'node:net';
 import { expect, it, vi } from 'vitest';
 import { AttemptCosts, OpenRouterProvider, reviewPullRequest } from '../src/index.js';
 import { MockGitClient } from '../../server/src/adapters/mocks.js';
@@ -47,47 +44,44 @@ it.each([
     { status: 200, raw: valid, cost: 0.00612 },
     { status: 200, raw: valid, cost: 0.004 },
   ];
-  let requests = 0;
-  const server = createServer((_req, res) => {
-    requests += 1;
+  const fetch = vi.fn(async (_url: unknown) => {
     const reply = replies.shift();
-    res.writeHead(reply?.status ?? 400, { 'content-type': 'application/json', 'retry-after-ms': '1' });
-    res.end(JSON.stringify(reply && 'raw' in reply ? {
+    return Response.json(reply && 'raw' in reply ? {
       choices: [{ message: { content: reply.raw } }], usage: { cost: reply.cost },
-    } : { error: { message: 'Unavailable' } }));
+    } : { error: { message: 'Unavailable' } }, {
+      status: reply?.status ?? 400,
+      headers: { 'retry-after-ms': '1' },
+    });
   });
-  server.listen(0, '127.0.0.1');
-  try {
-    await once(server, 'listening');
-    const llm = new OpenRouterProvider('test', {
-      baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, maxRetries: 1,
-    });
-    const diff = await new MockGitClient().diff();
-    diff.files = [diff.files[0]!, { ...diff.files[0]!, path: 'second.ts' }];
-    const usage: unknown[] = [];
-    const review = reviewPullRequest({
-      systemPrompt: 'Review', model: 'test', diff, llm, strategy: 'map-reduce',
-      checkCancelled: () => {
-        if (cancel && requests > 0) throw new Error('Run cancelled');
-      },
-      onEvent: ({ data }) => {
-        if (data && typeof data === 'object' && 'usage' in data) usage.push(data.usage);
-      },
-    });
-    if (cancel) {
-      await expect(review).rejects.toThrow('Run cancelled');
-      expect(requests).toBe(1);
-      expect(usage).toEqual([{ attempt_id: '1', cost_usd: retry ? null : 0.00412 }]);
-      return;
-    }
-    const outcome = await review;
-    const charges = [...(retry ? [null] : []), 0.00412, 0.00612, 0.004];
-    expect(usage).toEqual(charges.map((cost_usd, i) => ({ attempt_id: String(i + 1), cost_usd })));
-    expect(replies).toHaveLength(0);
-    if (retry) expect(outcome.costUsd).toBeNull();
-    else expect(outcome.costUsd).toBeCloseTo(0.01424, 12);
-  } finally {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+  // A legacy caller can still pass an extra property at runtime.
+  const options = { fetch, maxRetries: 1, baseURL: 'https://example.invalid/v1' };
+  const llm = new OpenRouterProvider('test', options);
+  const diff = await new MockGitClient().diff();
+  diff.files = [diff.files[0]!, { ...diff.files[0]!, path: 'second.ts' }];
+  const usage: unknown[] = [];
+  const review = reviewPullRequest({
+    systemPrompt: 'Review', model: 'test', diff, llm, strategy: 'map-reduce',
+    checkCancelled: () => {
+      if (cancel && fetch.mock.calls.length > 0) throw new Error('Run cancelled');
+    },
+    onEvent: ({ data }) => {
+      if (data && typeof data === 'object' && 'usage' in data) usage.push(data.usage);
+    },
+  });
+  if (cancel) {
+    await expect(review).rejects.toThrow('Run cancelled');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(usage).toEqual([{ attempt_id: '1', cost_usd: retry ? null : 0.00412 }]);
+    return;
   }
+  const outcome = await review;
+  const charges = [...(retry ? [null] : []), 0.00412, 0.00612, 0.004];
+  expect(usage).toEqual(charges.map((cost_usd, i) => ({ attempt_id: String(i + 1), cost_usd })));
+  expect(replies).toHaveLength(0);
+  for (const [url] of fetch.mock.calls) {
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+  }
+  if (retry) expect(outcome.costUsd).toBeNull();
+  else expect(outcome.costUsd).toBeCloseTo(0.01424, 12);
 });
