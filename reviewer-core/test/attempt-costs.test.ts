@@ -23,6 +23,17 @@ it('prefers reported charges and estimates only complete, priceable usage', () =
   expect(costs.total).toBeNull();
 });
 
+it.each([NaN, Infinity, -Infinity, -1])('records invalid direct cost %s as unknown', (invalid) => {
+  const onAttemptCost = vi.fn();
+  const costs = new AttemptCosts('model', undefined, onAttemptCost);
+  costs.record(0);
+  expect(costs.total).toBe(0);
+  costs.record(invalid);
+  costs.record(0.01);
+  expect(costs.total).toBeNull();
+  expect(onAttemptCost.mock.calls).toEqual([[0], [null], [0.01]]);
+});
+
 it.each([false, true])('logs each map and repair attempt once (transport retry %s)', async (retry) => {
   const valid = JSON.stringify({ verdict: 'approve', summary: 'OK', score: 100, findings: [] });
   const replies = [

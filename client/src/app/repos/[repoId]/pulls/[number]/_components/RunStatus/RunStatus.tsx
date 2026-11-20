@@ -21,8 +21,9 @@ export function RunStatus({
   const wasRunning = React.useRef(false);
 
   React.useEffect(() => {
-    if (running) wasRunning.current = true;
-    if (!running && wasRunning.current) onDone?.();
+    const streamClosed = wasRunning.current && !running;
+    wasRunning.current = running;
+    if (streamClosed) onDone?.();
   }, [running, onDone]);
 
   if (runIds.length === 0) return null;

@@ -25,6 +25,10 @@ import * as pullRepo from './repository/pull.repo.js';
 export class ReviewRepository {
   constructor(private db: Db) {}
 
+  transaction<T>(work: (repo: ReviewRepository) => Promise<T>): Promise<T> {
+    return this.db.transaction((tx) => work(new ReviewRepository(tx)));
+  }
+
   // ---- PR lookup (workspace-scoped) --------------------------------------
 
   getPull(workspaceId: string, prId: string): Promise<PullRow | undefined> {
@@ -88,8 +92,8 @@ export class ReviewRepository {
   }
 
   /** Mark a still-running run as cancelled (no-op if it already finished). */
-  cancelRunIfRunning(runId: string): Promise<boolean> {
-    return runRepo.cancelRunIfRunning(this.db, runId);
+  cancelRunIfRunning(workspaceId: string, runId: string): Promise<boolean> {
+    return runRepo.cancelRunIfRunning(this.db, workspaceId, runId);
   }
 
   /** On boot: any run still 'running' is orphaned (its process died / restarted),
@@ -164,7 +168,7 @@ export class ReviewRepository {
       /** Failure reason (status='failed') / cancellation note. Null clears it. */
       error?: string | null;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     return runRepo.completeAgentRun(this.db, runId, values);
   }
 

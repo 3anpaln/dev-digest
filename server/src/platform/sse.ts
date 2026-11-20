@@ -23,8 +23,8 @@ export class RunBus {
   private completed = new Set<string>();
   private cancelled = new Set<string>();
 
-  /** Request cancellation of an in-flight run. The runner checks `isCancelled`
-   *  at its next checkpoint (between map-reduce files) and stops. */
+  /** Signal an accepted cancellation to the executor. The cancellation
+   *  endpoint records the request outcome independently of the stream. */
   cancel(runId: string): void {
     if (!this.completed.has(runId)) this.cancelled.add(runId);
   }
@@ -78,21 +78,23 @@ export class RunBus {
     this.closeStream(runId);
   }
 
+  /** End the log stream once. The internal 'done' signal carries no run status. */
   closeStream(runId: string): void {
-    const e = this.emitters.get(runId);
-    this.completed.add(runId);
-    e?.emit('done');
+    if (!this.completed.has(runId)) {
+      this.completed.add(runId);
+      this.emitters.get(runId)?.emit('done');
+    }
     // Keep the buffer briefly available for late subscribers; clear emitter.
     this.emitters.delete(runId);
   }
 
-  /** Whether a run has already completed (for replay-then-end late subscribers). */
+  /** Whether the log stream has closed (for replay-then-end late subscribers). */
   isComplete(runId: string): boolean {
     return this.completed.has(runId);
   }
 
   onDone(runId: string, listener: () => void): () => void {
-    // A run that already completed fires immediately so late SSE subscribers,
+    // A stream that already closed fires immediately so late SSE subscribers,
     // after replaying the buffer, end the stream instead of hanging forever.
     if (this.completed.has(runId)) {
       queueMicrotask(listener);

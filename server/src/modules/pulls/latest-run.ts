@@ -37,7 +37,9 @@ export async function latestRunsForPulls(db: Db, workspaceId: string, prIds: str
   // separate workspace: its primary key is a foreign key to the globally
   // unique agent_runs.id, so it belongs to exactly that run's workspace.
   const rows = await db.select({
-    prId: latest.prId, status: latest.status, log: sql`${runTraces.trace} -> 'log'`,
+    prId: latest.prId,
+    status: latest.status,
+    log: sql`${runTraces.trace} -> ${'log'}::text`,
   }).from(latest).leftJoin(runTraces, eq(runTraces.runId, latest.id));
   for (const { prId, status, log } of rows) {
     runs.set(prId!, { status, cost_usd: status === 'running' ? null : loggedCost(log) });

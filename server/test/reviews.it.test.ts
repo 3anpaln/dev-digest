@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { PrListItem } from '@devdigest/shared';
+import { ReviewRepository } from '../src/modules/reviews/repository.js';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { waitForPrRuns } from './helpers/runs.js';
 import { buildApp } from '../src/app.js';
@@ -213,22 +214,35 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     }
   });
 
-  it.each(['failed', 'cancelled'] as const)('retains priced attempts in the saved %s trace', async (status) => {
+  it.each([
+    { status: 'failed', duringSave: false },
+    { status: 'cancelled', duringSave: false },
+    { status: 'cancelled', duringSave: true },
+  ] as const)('retains priced attempts in the saved $status trace (during save: $duringSave)', async ({ status, duringSave }) => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const fixture = status === 'failed' ? {} : REVIEW_FIXTURE;
     class PausedProvider extends MockLLMProvider {
       override async completeStructured<T>(req: StructuredRequest<T>) {
-        started();
-        await gate;
+        if (!duringSave) {
+          started();
+          await gate;
+        }
         return super.completeStructured(req);
       }
     }
     const started = vi.fn();
+    const markReviewed = ReviewRepository.prototype.markReviewed;
+    const pauseSave = duringSave ? vi.spyOn(ReviewRepository.prototype, 'markReviewed')
+      .mockImplementation(async function (this: ReviewRepository, prId, sha) {
+        started();
+        await gate;
+        return markReviewed.call(this, prId, sha);
+      }) : undefined;
     const llm = new PausedProvider('openai', { structured: fixture });
     const app = await buildApp({ config: config(), db: pg.handle.db, overrides: {
       github: new MockGitHubClient({ pulls: [] }), llm: { openai: llm },
-      git: new MockGitClient({ diff: DIFF + '\n' + DIFF.replaceAll('config.ts', 'second.ts') }),
+      git: new MockGitClient({ diff: duringSave ? DIFF : DIFF + '\n' + DIFF.replaceAll('config.ts', 'second.ts') }),
     } });
     try {
       const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
@@ -239,7 +253,17 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         payload: { agentId: agent.id } });
       const runId = trigger.json().runs[0].run_id;
       await vi.waitFor(() => expect(started).toHaveBeenCalledTimes(1));
-      if (status === 'cancelled') await app.inject({ method: 'POST', url: `/runs/${runId}/cancel` });
+      const cancel = async () => (await app.inject({ method: 'POST', url: `/runs/${runId}/cancel` })).json();
+      if (status === 'cancelled') {
+        const stream = app.inject({ url: `/runs/${runId}/events` });
+        expect(await cancel()).toEqual({ ok: true, cancelled: true });
+        expect(await cancel()).toEqual({ ok: true, cancelled: false });
+        const ended = await stream;
+        expect(ended.statusCode).toBe(200);
+        expect(ended.payload).toContain('Cancellation requested');
+        const history = await app.inject({ url: `/pulls/${pr.id}/runs` });
+        expect(history.json()).toContainEqual(expect.objectContaining({ run_id: runId, status: 'cancelled' }));
+      }
       release();
       await vi.waitFor(async () => {
         const res = await app.inject({ url: `/repos/${repo.id}/pulls` });
@@ -249,8 +273,11 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       expect(trace.log.filter((line: { usage?: unknown }) => line.usage)).toEqual([
         expect.objectContaining({ usage: { attempt_id: '1', cost_usd: 0.001 } }),
       ]);
+      const reviews = await app.inject({ url: `/pulls/${pr.id}/reviews` });
+      expect(reviews.json()).toEqual([]);
     } finally {
       release();
+      pauseSave?.mockRestore();
       await app.close();
     }
   });
@@ -337,6 +364,10 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     // agent_runs row populated for A5 to aggregate
     const [run] = await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.id, runId));
     expect(run!.status).toBe('done');
+    const lateCancel = await app.inject({ method: 'POST', url: `/runs/${runId}/cancel` });
+    expect(lateCancel.json()).toEqual({ ok: true, cancelled: false });
+    const [afterCancel] = await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.id, runId));
+    expect(afterCancel!.status).toBe('done');
     expect(run!.findingsCount).toBe(1);
     expect(run!.grounding).toBe('1/2 passed');
 
@@ -404,12 +435,12 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         payload: { name: 'SseAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
       })
     ).json();
-    // The run is synchronous; events are buffered on the bus. Subscribing after
-    // the run still replays the buffer (replay-first semantics), then completes.
+    // Wait for completion so this request exercises replay then stream closure.
     const body = (
       await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } })
     ).json();
     const runId = body.runs[0].run_id;
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
 
     const sse = await app.inject({ method: 'GET', url: `/runs/${runId}/events` });
     expect(sse.statusCode).toBe(200);
@@ -417,6 +448,8 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     // The replay buffer should contain our log lines as SSE `data:` frames.
     expect(sse.payload).toContain('Starting review');
     expect(sse.payload).toContain('Citation grounding');
+    const history = await app.inject({ url: `/pulls/${pr.id}/runs` });
+    expect(history.json()).toContainEqual(expect.objectContaining({ run_id: runId, status: 'done' }));
     await app.close();
   });
 

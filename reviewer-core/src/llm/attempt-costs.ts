@@ -9,24 +9,29 @@ export class AttemptCosts {
   ) {}
 
   record = (usd: number | null): void => {
-    this.total = usd === null || this.total === null ? null : this.total + usd;
-    this.onAttemptCost?.(usd);
+    const cost = validCost(usd) ? usd : null;
+    this.total = cost === null || this.total === null ? null : this.total + cost;
+    this.onAttemptCost?.(cost);
   };
 
   response(reported: unknown, input?: number, output?: number): void {
     let usd: number | null = null;
-    if (typeof reported === 'number' && Number.isFinite(reported) && reported >= 0) {
+    if (validCost(reported)) {
       usd = reported;
     } else if (validCount(input) && validCount(output)) {
       usd = this.estimate?.(this.model, input, output) ?? null;
     }
-    this.record(usd !== null && Number.isFinite(usd) && usd >= 0 ? usd : null);
+    this.record(usd);
   }
 
   failed = (error: unknown): never => {
     this.record(null);
     throw error;
   };
+}
+
+function validCost(cost: unknown): cost is number {
+  return typeof cost === 'number' && Number.isFinite(cost) && cost >= 0;
 }
 
 function validCount(count: number | undefined): count is number {
