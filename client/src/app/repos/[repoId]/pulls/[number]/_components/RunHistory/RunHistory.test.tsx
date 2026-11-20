@@ -12,6 +12,7 @@ import type { ReviewRecord, RunSummary } from "@devdigest/shared";
 import { useCancelRun } from "@/lib/hooks/reviews";
 import messages from "../../../../../../../../messages/en/prReview.json";
 import { RunHistory } from "./RunHistory";
+import { RunCostAmount } from "../RunCostAmount";
 import { FindingsTab } from "../FindingsTab/FindingsTab";
 
 afterEach(cleanup);
@@ -76,6 +77,18 @@ describe("RunHistory — outcome badge", () => {
     renderRuns([run({ status: "running", score: null, blockers: null })]);
     expect(screen.getByText("running")).toBeInTheDocument();
   });
+});
+
+it("falls back to three decimals for unsupported runtime precision", () => {
+  const unsupportedDigits = 999 as 3 | 4;
+  render(
+    <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+      <RunCostAmount cost={0.00126} digits={unsupportedDigits} />
+      <RunCostAmount cost={0.00001} digits={unsupportedDigits} />
+    </NextIntlClientProvider>,
+  );
+  expect(screen.getByText("$0.001")).toBeInTheDocument();
+  expect(screen.getByText("<$0.001")).toBeInTheDocument();
 });
 
 it("shows each run's cost in its timeline row and matching review header", () => {

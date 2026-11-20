@@ -33,6 +33,8 @@ export async function reviewCostsForPulls(db: Db, workspaceId: string, prIds: st
   if (!prIds.length) return totals;
 
   // A trace inherits its workspace from its run through the run_id foreign key.
+  // Read status and trace in the same PostgreSQL statement so the aggregation
+  // below uses one snapshot, even if a run commits while we sum the rows.
   const rows = await db.select({
     runId: agentRuns.id,
     prId: agentRuns.prId,
