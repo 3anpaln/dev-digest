@@ -158,6 +158,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
   let tokensOut = 0;
   let costUsd: number | null = 0;
   const raws: string[] = [];
+  let attemptId = 0;
 
   for (const chunk of chunks) {
     // Cancellation checkpoint — stop before the next (expensive) LLM call.
@@ -175,6 +176,11 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       model: input.model,
       schema: ReviewSchema,
       schemaName: 'Review',
+      checkCancelled: input.checkCancelled,
+      onAttemptCost: (usd) => {
+        const usage = { attempt_id: String(++attemptId), cost_usd: usd };
+        emit('result', 'Model attempt usage', { usage });
+      },
       messages: a.messages,
       maxRetries,
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
@@ -187,6 +193,8 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     emit('result', `${chunk.label}: ${res.data.findings.length} candidate finding(s)`);
   }
 
+  // Cancellation may have arrived during the final model request.
+  input.checkCancelled?.();
   const merged = reduceReviews(partials);
   emit(
     'result',

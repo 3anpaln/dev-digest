@@ -3,14 +3,44 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
-import type { PrMeta } from "@/lib/types";
+import type { PrListItem } from "@/lib/types";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
 
-export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
+const costFormat = {
+  style: "currency", currency: "USD", minimumFractionDigits: 3, maximumFractionDigits: 3,
+} as const;
+
+function RunCost({ run }: { run: PrListItem["latest_run"] }) {
+  const t = useTranslations("prReview.list.cost");
+  const format = useFormatter();
+  let value = "—";
+  let label = t("none");
+  if (run?.status === "running") {
+    value = "…";
+    label = t("running");
+  } else if (run) {
+    const cost = run.cost_usd;
+    if (cost != null) {
+      value = cost > 0 && cost < 0.0005
+        ? `<${format.number(0.001, costFormat)}`
+        : format.number(cost, costFormat);
+    }
+    const state = run.status === "failed" || run.status === "cancelled" ? run.status : "done";
+    label = t(state, { amount: cost == null ? t("unavailable") : value });
+  }
+  return (
+    <span className="mono" style={s.rowNumber} title={label}>
+      <span className="sr-only">{label}</span>
+      <span aria-hidden="true">{value}</span>
+    </span>
+  );
+}
+
+export function PRRow({ pr, repoId }: { pr: PrListItem; repoId: string }) {
   const t = useTranslations("prReview");
   const router = useRouter();
   const [h, setH] = React.useState(false);
@@ -58,6 +88,7 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
           {t(`list.status.${st.labelKey}`)}
         </Badge>
       </div>
+      <RunCost run={pr.latest_run} />
       <div style={s.updatedCell}>{relativeTime(pr.updated_at)}</div>
     </div>
   );

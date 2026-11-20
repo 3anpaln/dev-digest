@@ -3,7 +3,7 @@
 "use client";
 
 import React from "react";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { Badge } from "@devdigest/ui";
 import type { RunTrace, FindingRecord } from "@devdigest/shared";
 import { PROMPT_COLORS } from "../../constants";
@@ -15,9 +15,19 @@ import { PromptBlock } from "../PromptBlock";
 import { FindingsSection } from "../FindingsSection";
 import { Row, Stat } from "../atoms";
 
+const costFormat = { style: "currency", currency: "USD" } as const;
+
 export function TraceBody({ trace, findings }: { trace: RunTrace; findings: FindingRecord[] }) {
   const t = useTranslations("runs");
+  const format = useFormatter();
   const stats = trace.stats;
+  const cost = stats.cost_usd;
+  let costLabel = "—";
+  if (cost != null) {
+    costLabel = cost > 0 && cost < 0.01
+      ? `<${format.number(0.01, costFormat)}`
+      : format.number(cost, costFormat);
+  }
   return (
     <>
       <TraceSection icon="Settings" title={t("trace.configuration")}>
@@ -63,6 +73,7 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
         <div style={s.statsRow}>
           <Stat label={t("trace.stat.duration")} val={formatSeconds(stats.duration_ms)} />
           <Stat label={t("trace.stat.tokens")} val={formatTokens(stats.tokens_in, stats.tokens_out)} />
+          <Stat label={t("trace.stat.cost")} val={costLabel} />
           <Stat label={t("trace.stat.findings")} val={stats.findings} />
         </div>
       </TraceSection>

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import type { PrListItem, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import { latestRunsForPulls } from './latest-run.js';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
@@ -23,7 +24,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
   const { container } = app;
 
-  app.get('/repos/:id/pulls', { schema: { params: IdParams } }, async (req): Promise<PrMeta[]> => {
+  app.get('/repos/:id/pulls', { schema: { params: IdParams } }, async (req): Promise<PrListItem[]> => {
     const { workspaceId } = await getContext(container, req);
     const [repo] = await container.db
       .select()
@@ -80,7 +81,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     const rows = await container.db
       .select()
       .from(t.pullRequests)
-      .where(eq(t.pullRequests.repoId, repo.id));
+      .where(and(eq(t.pullRequests.repoId, repo.id), eq(t.pullRequests.workspaceId, workspaceId)));
 
     // Diff stats aren't on GitHub's PR-list payload, so freshly-imported PRs
     // land with zeroed size/diff. Backfill them once from the detail endpoint
@@ -116,6 +117,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
     // not surfaced on the list — findings live on the PR detail page.)
     const prIds = rows.map((r) => r.id);
+    const latestRuns = await latestRunsForPulls(container.db, workspaceId, prIds);
     const latestReviewByPr = new Map<string, { score: number | null }>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
@@ -153,6 +155,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        latest_run: latestRuns.get(r.id) ?? null,
       };
     });
   });

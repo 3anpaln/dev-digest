@@ -6,6 +6,7 @@ import { ReviewRepository } from './repository.js';
 import { type ReviewDto, type ReviewDtoFinding } from './helpers.js';
 import { ReviewRunExecutor, type Logger } from './run-executor.js';
 import { actOnFinding as actOnFindingImpl } from './findings.js';
+import { loggedCost } from '../pulls/latest-run.js';
 import { reviewToDto } from './helpers.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
@@ -77,16 +78,16 @@ export class ReviewService {
   }
 
   /**
-   * Cancel an in-flight run. Signals a live runner to stop at its next
-   * checkpoint AND marks the DB row cancelled + completes the bus immediately —
-   * so cancel also works for ORPHANED runs (whose background process died on a
-   * server restart) where signalling alone would do nothing.
+   * Claim cancellation in the database before signalling the executor.
+   * This also cancels a running row whose executor is no longer present.
    */
-  async cancelRun(runId: string): Promise<void> {
-    this.publish(runId, 'info', 'Cancellation requested — stopping…');
+  async cancelRun(workspaceId: string, runId: string): Promise<boolean> {
+    const cancelled = await this.repo.cancelRunIfRunning(workspaceId, runId);
+    if (!cancelled) return false;
     this.container.runBus.cancel(runId);
-    await this.repo.cancelRunIfRunning(runId);
-    this.container.runBus.complete(runId);
+    this.publish(runId, 'info', 'Cancellation requested — stopping…');
+    this.container.runBus.closeStream(runId);
+    return true;
   }
 
   /** Reap runs left 'running' by a previous (now-dead) process. Called on boot. */
@@ -174,6 +175,8 @@ export class ReviewService {
   }
 
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {
-    return this.repo.getRunTrace(runId);
+    const trace = await this.repo.getRunTrace(runId);
+    if (!trace) return undefined;
+    return { ...trace, stats: { ...trace.stats, cost_usd: loggedCost(trace.log, runId) } };
   }
 }

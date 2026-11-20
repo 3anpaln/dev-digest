@@ -112,9 +112,11 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
 
   // ---- Cancel an in-flight run --------------------------------------------
   app.post('/runs/:id/cancel', { schema: { params: IdParams } }, async (req) => {
-    await getContext(container, req);
-    await service.cancelRun(req.params.id);
-    return { ok: true };
+    const { workspaceId } = await getContext(container, req);
+    const runId = req.params.id;
+    const cancelled = await service.cancelRun(workspaceId, runId);
+    req.log.info({ workspaceId, runId, cancelled }, 'Review cancellation requested');
+    return { ok: true, cancelled };
   });
 
   // ---- Run trace (single document; A5 enriches with multi-agent/stats) ----

@@ -1,4 +1,4 @@
-import type { RunEventKind, RunLogLine } from '@devdigest/shared';
+import { AttemptUsage, type RunEventKind, type RunLogLine } from '@devdigest/shared';
 import type { RunBus } from './sse.js';
 
 /**
@@ -32,6 +32,14 @@ const LEVEL: Record<RunEventKind, keyof PinoLike> = {
   result: 'info',
   error: 'error',
 };
+
+export function savedLog(bus: RunBus, runId: string): RunLogLine[] {
+  return bus.buffer(runId).map(({ t, kind, msg, data }) => {
+    const line = { t, kind, msg };
+    if (!data || typeof data !== 'object' || !('usage' in data)) return line;
+    return { ...line, usage: AttemptUsage.parse(data.usage) };
+  });
+}
 
 export class RunLogger {
   constructor(
@@ -88,10 +96,5 @@ export class RunLogger {
       this.error(`${label} failed (${Date.now() - t0}ms): ${(err as Error).message}`);
       throw err;
     }
-  }
-
-  /** The run's full event buffer mapped to persisted log lines (incl. pre-work). */
-  logFor(runId: string): RunLogLine[] {
-    return this.bus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg }));
   }
 }

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { AttemptCosts } from '@devdigest/reviewer-core';
 import type {
   LLMProvider,
   ModelInfo,
@@ -12,6 +13,16 @@ import { withRetry, withTimeout } from '../../platform/resilience.js';
 import { toJsonSchema, parseWithRepair } from '../../platform/structured.js';
 import { estimateCost } from './pricing.js';
 import { ExternalServiceError } from '../../platform/errors.js';
+
+class ReviewAnthropicClient extends Anthropic {
+  override buildRequest(
+    options: Parameters<Anthropic['buildRequest']>[0] & { beforeAttempt?: (retryCount?: number) => void },
+    props?: { retryCount?: number },
+  ) {
+    options.beforeAttempt?.(props?.retryCount);
+    return super.buildRequest(options, props);
+  }
+}
 
 const DEFAULT_TIMEOUT = 60_000;
 const DEFAULT_MAX_TOKENS = 4096;
@@ -43,7 +54,7 @@ export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
 
   constructor(apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new ReviewAnthropicClient({ apiKey });
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -95,6 +106,8 @@ export class AnthropicProvider implements LLMProvider {
     let tokensIn = 0;
     let tokensOut = 0;
     let lastRaw = '';
+    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost, req.checkCancelled);
+    const options = { timeout: req.timeoutMs ?? DEFAULT_TIMEOUT, beforeAttempt: costs.beforeAttempt };
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       const res = await withRetry(() =>
@@ -113,12 +126,24 @@ export class AnthropicProvider implements LLMProvider {
               },
             ],
             tool_choice: { type: 'tool', name: toolName },
-          }),
-          req.timeoutMs ?? DEFAULT_TIMEOUT,
-        ),
+          }, options),
+          options.timeout,
+        ).catch(costs.failed),
       );
-      tokensIn += res.usage.input_tokens;
-      tokensOut += res.usage.output_tokens;
+      const usage = res.usage;
+      if (usage == null) {
+        console.warn('Anthropic structured response is missing usage metadata', {
+          model: req.model,
+          attempt,
+        });
+      }
+      costs.response(
+        (usage as { cost?: number } | null)?.cost,
+        usage?.input_tokens,
+        usage?.output_tokens,
+      );
+      tokensIn += usage?.input_tokens ?? 0;
+      tokensOut += usage?.output_tokens ?? 0;
 
       const toolUse = res.content.find(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
@@ -132,7 +157,7 @@ export class AnthropicProvider implements LLMProvider {
           model: req.model,
           tokensIn,
           tokensOut,
-          costUsd: estimateCost(req.model, tokensIn, tokensOut),
+          costUsd: costs.total,
           raw: lastRaw,
           attempts: attempt,
         };
@@ -144,9 +169,7 @@ export class AnthropicProvider implements LLMProvider {
       });
     }
 
-    throw new ExternalServiceError('Anthropic structured output failed schema validation', {
-      raw: lastRaw,
-    });
+    throw new ExternalServiceError('Anthropic structured output failed schema validation');
   }
 
   async embed(): Promise<number[][]> {

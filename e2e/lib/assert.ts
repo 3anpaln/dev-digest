@@ -33,10 +33,11 @@ export interface FlowResult {
   steps: StepResult[];
 }
 
-/** Substitute `{BASE}` (and trim a trailing slash on BASE) in every arg. */
+/** Resolve the web and API origins for this stack. */
 export function resolveArgs(cmd: string[], base: string): string[] {
   const b = base.replace(/\/+$/, "");
-  return cmd.map((a) => a.replaceAll("{BASE}", b));
+  const api = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:3001").replace(/\/+$/, "");
+  return cmd.map((a) => a.replaceAll("{BASE}", b).replaceAll("{API}", api));
 }
 
 export function stdoutContains(stdout: string, needle: string): boolean {
