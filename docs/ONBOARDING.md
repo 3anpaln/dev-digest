@@ -27,7 +27,50 @@ From the root in a second terminal, run `cd client`, `pnpm.cmd install`, then `p
 - **Try it without keys.** Open seeded repo `acme/payments-api` and PR `#482` to see the diff and a saved review. Keep the seed step on a fresh database. It creates the user and workspace used by the no-login request path along with demo data. [Seed script](../server/src/db/seed.ts) · [Local auth](../server/src/adapters/auth/local.ts)
 - **Review a real PR.** In **Settings → API Keys**, add your GitHub token and the key for your agent's provider. The three seeded reviewers use OpenRouter. You can select another provider and model under **Agents**. Add a GitHub repo, open a PR, choose **Run Review**, then inspect **Findings** and the run trace. Inline comments and replies in **Files changed** go to GitHub. [Agent presets](../server/src/db/seed.ts#L180) · [Settings routes](../server/src/modules/settings/routes.ts) · [PR routes](../server/src/modules/pulls/routes.ts#L254)
 
-## How the parts fit
+## Architecture overview
+
+During local development, Next.js and Fastify run as separate Node.js processes on the host. Docker runs PostgreSQL 16 with pgvector. The review engine and indexing jobs execute inside the API process. [Development launcher](../scripts/dev.sh) · [Database container](../docker-compose.yml)
+
+```mermaid
+flowchart LR
+    UI["Browser · Next.js UI on port 3000"]
+    subgraph API["Fastify process · port 3001"]
+        Routes["Feature routes"]
+        Index["Clone and index jobs"]
+        Runs["Review executor"]
+        Core["reviewer-core"]
+        Routes -->|queue| Index
+        Routes -->|start run| Runs
+        Runs -->|diff and context| Core
+    end
+    UI -->|HTTP requests| Routes
+    Routes -->|live run events via SSE| UI
+    Routes <-->|PRs and comments| GH["GitHub"]
+    Index -->|clone from| GH
+    Index -->|write and scan| Disk["Local Git checkout"]
+    Index -->|symbols and repo map| DB[("PostgreSQL")]
+    Routes <-->|agents, settings and PRs| DB
+    Runs -->|read diff| Disk
+    Runs <-->|cached patches, context and review results| DB
+    Core <-->|prompt and structured review| Model["Configured model provider"]
+```
+
+The API returns a run ID before the model finishes. The browser uses that ID to subscribe to live events. After a reload it can retrieve the saved run and trace from Postgres. If indexing is incomplete, a review can proceed with the available diff. [Review service](../server/src/modules/reviews/service.ts) · [Client run hooks](../client/src/lib/hooks/reviews.ts)
+
+## Technical stack and key packages
+
+Each package has its own manifest and lockfile. Use pnpm in `client/` and `server/`, and npm in `reviewer-core/` and `e2e/`. The API resolves reviewer-core through a TypeScript source alias, so both packages need their dependencies installed. [API aliases](../server/tsconfig.json) · [Bootstrap script](../scripts/dev.sh)
+
+| Layer | Packages and their role |
+| --- | --- |
+| Web studio | Next.js 15 provides routing, React 19 renders the UI, and `@tanstack/react-query` caches and refreshes API data. `next-intl` supplies UI messages. Tailwind CSS 4 and the vendored UI kit supply styling and reusable controls. [Client manifest](../client/package.json) |
+| API and contracts | Fastify 5 hosts the feature routes. Zod 3 and `fastify-type-provider-zod` validate route inputs. `fastify-sse-v2` streams live review events. [API setup](../server/src/app.ts) |
+| Database and jobs | `drizzle-orm` maps TypeScript schemas to PostgreSQL, `postgres` is the database driver, and `drizzle-kit` generates migrations. `p-queue` schedules clone and index jobs in memory while the API records their status in Postgres. [Server manifest](../server/package.json) · [Job runner](../server/src/platform/jobs.ts) |
+| GitHub and repository indexing | `octokit` accesses GitHub PRs and comments. `simple-git` operates on local clones. `@ast-grep/napi` extracts symbols, `dependency-cruiser` builds the import graph, and `graphology` with `graphology-metrics` ranks files using PageRank. `js-tiktoken` measures the repo map against its token budget. [Indexing pipeline](../server/src/modules/repo-intel/README.md) · [File ranking](../server/src/modules/repo-intel/pipeline/rank.ts) |
+| Model integration | The API selects a provider for each agent and injects it into reviewer-core. The adapters use `openai` for OpenAI and OpenRouter and `@anthropic-ai/sdk` for Anthropic. Reviewer-core uses Zod to define the expected review structure. [Provider wiring](../server/src/platform/container.ts) · [Engine manifest](../reviewer-core/package.json) |
+| Development and tests | TypeScript checks types and `tsx` runs TypeScript entry points. Vitest runs unit tests, React Testing Library and jsdom exercise components, Testcontainers starts PostgreSQL for integration tests, and the `agent-browser` CLI drives end-to-end flows. [Test suite map](../TESTING.md) · [Browser harness](../e2e/README.md) |
+
+### Package ownership
 
 | Part | What it owns |
 | --- | --- |
