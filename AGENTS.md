@@ -13,7 +13,7 @@ Read the linked package instructions before editing that package. Run the comman
 | [reviewer-core/](reviewer-core/AGENTS.md) | Review engine consumed as TypeScript source by the API. | `npm run build` (typecheck) | `npm test` |
 | [e2e/](e2e/AGENTS.md) | Deterministic browser flows using agent-browser. | Start the seeded stack | `npm test` |
 
-From the root, run `bash scripts/dev.sh` for the full stack. Use pnpm 10 for the client and server to match CI. For native PowerShell setup, follow **First run on Windows** in the [onboarding guide](docs/ONBOARDING.md).
+From the root, run `bash scripts/dev.sh` for the full stack. Use pnpm 10 for the client and server to match CI.
 
 ## Naming and ownership
 
@@ -31,3 +31,7 @@ From the root, run `bash scripts/dev.sh` for the full stack. Use pnpm 10 for the
 - For cross-package changes, read **Architecture** in the [project README](README.md).
 - For route changes, open the [server README](server/README.md) and read **API map (starter)**. For indexing changes, read the [repo-intel reference](server/src/modules/repo-intel/README.md).
 - Read the [specs index](specs/README.md) for acceptance criteria and [TESTING.md](TESTING.md) for CI coverage. Follow the affected package’s links for local docs and insights.
+
+## Task completion
+
+After verification and before the final response for each task, follow the [record-task-insights skill](.claude/skills/record-task-insights/SKILL.md).
