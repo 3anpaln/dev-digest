@@ -29,7 +29,6 @@
   "panel": {
     "hideLowConfidence": "Hide low confidence",
     "severityCount": "{count, number} {severity}",
-    "clearSeverityFilter": "Clear severity filter",
     "noFindingsTitle": "No findings in this run",
     "noMatchTitle": "No findings match",
     "noMatchBody": "Adjust the filters above to see more findings."

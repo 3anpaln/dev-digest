@@ -115,7 +115,7 @@ describe("FindingsPanel", () => {
     expect(run.queryByText("Boundary warning")).not.toBeInTheDocument();
 
     fireEvent.click(hideLow);
-    fireEvent.click(run.getByRole("button", { name: "Clear severity filter" }));
+    fireEvent.click(suggestion);
     expect(hideLow).toBeChecked();
     expect(run.queryByRole("button", { pressed: true })).not.toBeInTheDocument();
     expect(suggestion.style.background).toBe("transparent");

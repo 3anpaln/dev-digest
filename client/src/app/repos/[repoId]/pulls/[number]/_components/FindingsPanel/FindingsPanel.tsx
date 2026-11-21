@@ -36,9 +36,8 @@ export function FindingsPanel({
     counts.set(finding.severity, (counts.get(finding.severity) ?? 0) + 1);
   }
 
-  function selectSeverity(next: Severity | null) {
-    if (next === severity) return;
-    setSeverity(next);
+  function toggleSeverity(level: Severity) {
+    setSeverity((selected) => selected === level ? null : level);
     setFocusIdx(0);
   }
 
@@ -72,7 +71,7 @@ export function FindingsPanel({
               kind="ghost"
               size="sm"
               aria-pressed={active}
-              onClick={() => selectSeverity(level)}
+              onClick={() => toggleSeverity(level)}
               style={{
                 ...s.severityButton,
                 color: active ? "#fff" : color,
@@ -84,11 +83,6 @@ export function FindingsPanel({
             </Button>
           );
         })}
-        {severity !== null && (
-          <Button type="button" kind="tertiary" size="sm" onClick={() => selectSeverity(null)}>
-            {t("panel.clearSeverityFilter")}
-          </Button>
-        )}
         <label style={s.toggleGroup}>
           {t("panel.hideLowConfidence")}
           <Toggle
