@@ -7,3 +7,5 @@ When a React rerender warns about a border shorthand, check for an aggregate pro
 When localizing review costs, use the same formatter for small-charge thresholds and ordinary amounts. The locale controls separators and symbol placement, while the currency stays USD. [Trace formatting regression](src/app/repos/[repoId]/pulls/[number]/_components/RunTraceDrawer/RunTraceDrawer.test.tsx)
 
 When showing per-run metadata in a review accordion, match the review to the run summary by run_id. The same agent can review a PR multiple times, and the review and timeline sections can order those records differently. [Agent runs display test](src/app/repos/[repoId]/pulls/[number]/_components/RunHistory/RunHistory.test.tsx)
+
+Build severity counters from the full findings array for each run. The confidence filter can hide every finding in a severity that still has a positive count, so exercise that case separately from a severity with zero findings. [Severity counters and filtering](specs/pr-detail.md#severity-counters-and-filtering)
