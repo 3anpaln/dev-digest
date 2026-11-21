@@ -223,11 +223,17 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       await db.update(t.runTraces).set({ trace: { log: [usage('1', 0)] } })
         .where(inArray(t.runTraces.runId, [older!.id, otherAgent]));
       expect(await selected()).toEqual({ running: false, cost_usd: 0 });
+      await db.update(t.runTraces).set({ trace: { log: [usage('1', 0.02)] } })
+        .where(eq(t.runTraces.runId, otherAgent));
       for (const log of [[usage('1', 1), usage('2', null)], [{ msg: 'legacy' }]]) {
         await writeLog(log);
         expect(await selected()).toEqual({ running: false, cost_usd: null });
         expect(await traceCost(rerun)).toBeNull();
       }
+      await writeLog([usage('1', Number.MAX_VALUE)]);
+      await db.update(t.runTraces).set({ trace: { log: [usage('1', Number.MAX_VALUE)] } })
+        .where(eq(t.runTraces.runId, otherAgent));
+      expect(await selected()).toEqual({ running: false, cost_usd: null });
       expect((await app.inject({ url: `/repos/${foreign.repo.id}/pulls` })).statusCode).toBe(404);
       expect(llm.calls).toHaveLength(0);
     } finally {
@@ -263,7 +269,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     const llm = new PausedProvider('openai', { structured: fixture });
     const app = await buildApp({ config: config(), db: pg.handle.db, overrides: {
       github: new MockGitHubClient({ pulls: [] }), llm: { openai: llm },
-      git: new MockGitClient({ diff: duringSave ? DIFF : DIFF + '\n' + DIFF.replaceAll('config.ts', 'second.ts') }),
+      git: new MockGitClient({ diff: duringSave ? DIFF : DIFF + '\n' + DIFF.replace(/config\.ts/g, 'second.ts') }),
     } });
     try {
       const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
