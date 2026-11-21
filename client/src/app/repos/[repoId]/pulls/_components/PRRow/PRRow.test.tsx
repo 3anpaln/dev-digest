@@ -37,6 +37,15 @@ it("renders totals in the cost column and preserves PR row navigation on refetch
     number: i + 1, title: `PR ${i + 1}`, author: "Alice", branch: "test", base: "main",
     head_sha: "abc", additions: 5, deletions: 0, files_count: 1, status: "needs_review", review_cost: run,
   }));
+  rows[0]!.findings_summary = {
+    counts: { critical: 1, warning: 0, suggestion: 1 },
+    preview: [
+      { id: "f1", severity: "CRITICAL", category: "bug", title: "Missing validation", file: "src/input.ts",
+        start_line: 6, end_line: 8, confidence: 0.9, rationale: "Validate the input before using it." },
+      { id: "f2", severity: "SUGGESTION", category: "style", title: "Name the constant", file: "src/input.ts",
+        start_line: 12, end_line: 12, confidence: 0.8, rationale: "A name explains the default value." },
+    ],
+  };
   expect(PrListItem.array().parse(rows)).toEqual(rows);
   expect(PrListItem.safeParse({ ...rows[0], review_cost: { running: false } }).success).toBe(false);
   const fetchList = vi.fn(async (_url: string) => Response.json(rows));
@@ -50,6 +59,22 @@ it("renders totals in the cost column and preserves PR row navigation on refetch
     </QueryClientProvider>,
   );
   await screen.findByText("PR 1");
+  const findingsHeader = screen.getByText("Findings");
+  expect(findingsHeader.previousElementSibling).toHaveTextContent("Score");
+  expect(findingsHeader.nextElementSibling).toHaveTextContent("Status");
+  const trigger = screen.getByRole("button", { name: "Preview findings · 1 critical and 1 suggestion" });
+  expect(trigger.querySelectorAll("svg")).toHaveLength(2);
+  fireEvent.mouseEnter(trigger);
+  expect(screen.getByRole("region", { name: "2 findings" })).toHaveTextContent("src/input.ts:6–8");
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  expect(screen.queryByRole("region", { name: "2 findings" })).toBeNull();
+  fireEvent.focus(trigger);
+  fireEvent.click(trigger);
+  expect(screen.getByText("Name the constant")).toBeVisible();
+  expect(push).not.toHaveBeenCalled();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("region", { name: "2 findings" })).toBeNull();
+  expect(screen.getAllByLabelText("No findings")).toHaveLength(rows.length - 1);
   const header = screen.getByText("Cost");
   expect(header.previousElementSibling).toHaveTextContent("Status");
   expect(header.nextElementSibling).toHaveTextContent("Updated");

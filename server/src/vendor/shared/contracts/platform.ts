@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Provider } from './knowledge.js';
+import { FindingSummary } from './findings.js';
 
 /**
  * Platform / scaffolding DTOs owned by F1:
@@ -176,6 +177,7 @@ export const PrMeta = z.object({
 export type PrMeta = z.infer<typeof PrMeta>;
 
 export const PrListItem = PrMeta.extend({
+  findings_summary: FindingSummary.nullish(),
   review_cost: z.object({
     running: z.boolean(),
     cost_usd: z.number().finite().nonnegative().nullable(),
