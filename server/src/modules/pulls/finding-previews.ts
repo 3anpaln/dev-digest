@@ -18,11 +18,11 @@ export async function findingSummariesForReviews(db: Db, reviewIds: string[]) {
         ${findings.file}, ${findings.startLine}, ${findings.id}
     )`.as('preview_rank'),
     critical: sql<number>`count(*) filter (where ${findings.severity} = 'CRITICAL')
-      over (partition by ${findings.reviewId})`.mapWith(Number).as('critical'),
+      over (partition by ${findings.reviewId})`.mapWith(Number).as('critical_count'),
     warning: sql<number>`count(*) filter (where ${findings.severity} = 'WARNING')
-      over (partition by ${findings.reviewId})`.mapWith(Number).as('warning'),
+      over (partition by ${findings.reviewId})`.mapWith(Number).as('warning_count'),
     suggestion: sql<number>`count(*) filter (where ${findings.severity} = 'SUGGESTION')
-      over (partition by ${findings.reviewId})`.mapWith(Number).as('suggestion'),
+      over (partition by ${findings.reviewId})`.mapWith(Number).as('suggestion_count'),
   }).from(findings)
     .where(and(
       inArray(findings.reviewId, reviewIds),
