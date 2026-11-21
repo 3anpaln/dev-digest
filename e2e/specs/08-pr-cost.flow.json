@@ -1,5 +1,5 @@
 {
-  "name": "Latest review cost on PR rows",
+  "name": "Total review cost on PR rows",
   "steps": [
     {
       "cmd": [
@@ -7,7 +7,7 @@
         "route",
         "{API}/repos/*/pulls",
         "--body",
-        "[{\"number\":481,\"title\":\"First review\",\"author\":\"tester\",\"branch\":\"feature\",\"base\":\"main\",\"head_sha\":\"abc\",\"additions\":1,\"deletions\":0,\"files_count\":1,\"status\":\"needs_review\",\"latest_run\":{\"status\":\"done\",\"cost_usd\":0.01424}},{\"number\":482,\"title\":\"Second review\",\"author\":\"tester\",\"branch\":\"feature\",\"base\":\"main\",\"head_sha\":\"abc\",\"additions\":1,\"deletions\":0,\"files_count\":1,\"status\":\"needs_review\",\"latest_run\":{\"status\":\"done\",\"cost_usd\":0.022}}]",
+        "[{\"number\":481,\"title\":\"First review\",\"author\":\"tester\",\"branch\":\"feature\",\"base\":\"main\",\"head_sha\":\"abc\",\"additions\":1,\"deletions\":0,\"files_count\":1,\"status\":\"needs_review\",\"review_cost\":{\"running\":false,\"cost_usd\":0.01424}},{\"number\":482,\"title\":\"Second review\",\"author\":\"tester\",\"branch\":\"feature\",\"base\":\"main\",\"head_sha\":\"abc\",\"additions\":1,\"deletions\":0,\"files_count\":1,\"status\":\"needs_review\",\"review_cost\":{\"running\":false,\"cost_usd\":0.022}}]",
         "--allow-origin",
         "{BASE}"
       ],
@@ -31,7 +31,7 @@
     {
       "cmd": [
         "eval",
-        "(() => {\n  const heading = [...document.querySelectorAll('div')].find(el => el.textContent === 'Cost');\n  if (heading?.previousElementSibling?.textContent !== 'Status' || heading.nextElementSibling?.textContent !== 'Updated') return false;\n  const left = heading.getBoundingClientRect().left;\n  return ['$0.014', '$0.022'].every((amount, i) => {\n    const cell = document.querySelector('[title=\"Latest review cost · ' + amount + '\"]');\n    if (!cell || !cell.parentElement.textContent.includes('#' + (481 + i))) return false;\n    const style = getComputedStyle(cell);\n    return cell.innerText.includes(amount) && cell.getBoundingClientRect().left === left &&\n      style.color === getComputedStyle(heading).color && style.fontFamily.includes('monospace') &&\n      !cell.closest('a, button, [tabindex]');\n  });\n})()"
+        "(() => {\n  const heading = [...document.querySelectorAll('div')].find(el => el.textContent === 'Cost');\n  if (heading?.previousElementSibling?.textContent !== 'Status' || heading.nextElementSibling?.textContent !== 'Updated') return false;\n  const left = heading.getBoundingClientRect().left;\n  return ['$0.014', '$0.022'].every((amount, i) => {\n    const cell = document.querySelector('[title=\"Total review cost · ' + amount + '\"]');\n    if (!cell || !cell.parentElement.textContent.includes('#' + (481 + i))) return false;\n    const style = getComputedStyle(cell);\n    return cell.innerText.includes(amount) && cell.getBoundingClientRect().left === left &&\n      style.color === getComputedStyle(heading).color && style.fontFamily.includes('monospace') &&\n      !cell.closest('a, button, [tabindex]');\n  });\n})()"
       ],
       "label": "Check row amounts, column alignment, muted color and monospace font",
       "assert": {

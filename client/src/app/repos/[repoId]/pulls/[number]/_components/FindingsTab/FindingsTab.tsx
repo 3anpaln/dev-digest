@@ -70,6 +70,7 @@ export function FindingsTab({
   const handleGoToReview = useCallback((runId: string) => {
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
+  const costByRunId = new Map(prRuns?.map((run) => [run.run_id, run.cost_usd]));
 
   return (
     <section>
@@ -158,6 +159,7 @@ export function FindingsTab({
           <ReviewRunAccordion
             key={review.id}
             review={review}
+            costUsd={review.run_id ? costByRunId.get(review.run_id) ?? null : null}
             prId={prId}
             defaultOpen={i === 0}
             repoFullName={repoFullName}

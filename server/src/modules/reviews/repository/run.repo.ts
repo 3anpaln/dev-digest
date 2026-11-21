@@ -1,7 +1,8 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { RunSummary, RunTrace } from '@devdigest/shared';
+import { loggedCost } from '../../pulls/latest-run.js';
 
 // ---- in-flight / history --------------------------------------------------
 
@@ -43,12 +44,13 @@ export async function listRunsForPull(
   prId: string,
 ): Promise<RunSummary[]> {
   const rows = await db
-    .select({ run: t.agentRuns, agentName: t.agents.name })
+    .select({ run: t.agentRuns, agentName: t.agents.name, log: sql`${t.runTraces.trace} -> ${'log'}::text` })
     .from(t.agentRuns)
     .leftJoin(t.agents, eq(t.agents.id, t.agentRuns.agentId))
+    .leftJoin(t.runTraces, eq(t.runTraces.runId, t.agentRuns.id))
     .where(and(eq(t.agentRuns.workspaceId, workspaceId), eq(t.agentRuns.prId, prId)))
     .orderBy(desc(t.agentRuns.ranAt));
-  return rows.map(({ run, agentName }) => ({
+  return rows.map(({ run, agentName, log }) => ({
     run_id: run.id,
     agent_id: run.agentId,
     agent_name: agentName ?? null,
@@ -59,6 +61,7 @@ export async function listRunsForPull(
     duration_ms: run.durationMs,
     tokens_in: run.tokensIn,
     tokens_out: run.tokensOut,
+    cost_usd: run.status === 'running' ? null : loggedCost(log, run.id),
     findings_count: run.findingsCount,
     grounding: run.grounding,
     ran_at: run.ranAt ? run.ranAt.toISOString() : null,

@@ -22,27 +22,23 @@ vi.mock("@/components/app-shell", () => ({
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-it("renders the latest amounts in the cost column and preserves PR row navigation on refetch", async () => {
+it("renders totals in the cost column and preserves PR row navigation on refetch", async () => {
   const cases = [
-    { run: { status: "done", cost_usd: 0.01424 }, value: "$0.014", label: "Latest review cost · $0.014" },
-    { run: { status: "done", cost_usd: 0 }, value: "$0.000", label: "Latest review cost · $0.000" },
-    { run: { status: "done", cost_usd: 0.0001 }, value: "<$0.001", label: "Latest review cost · <$0.001" },
-    { run: { status: "done", cost_usd: 0.0145 }, value: "$0.015", label: "Latest review cost · $0.015" },
-    { run: { status: "done", cost_usd: 0.0005 }, value: "$0.001", label: "Latest review cost · $0.001" },
-    { run: { status: "done", cost_usd: null }, value: "—", label: "Latest review cost · unavailable" },
-    { run: { status: "running", cost_usd: null }, value: "…", label: "Latest review in progress" },
-    { run: { status: "failed", cost_usd: 0.05 }, value: "$0.050", label: "Latest review failed · cost $0.050" },
-    { run: { status: "failed", cost_usd: null }, value: "—", label: "Latest review failed · cost unavailable" },
-    { run: { status: "cancelled", cost_usd: 0 }, value: "$0.000", label: "Latest review cancelled · cost $0.000" },
-    { run: { status: "cancelled", cost_usd: null }, value: "—", label: "Latest review cancelled · cost unavailable" },
+    { run: { running: false, cost_usd: 0.01424 }, value: "$0.014", label: "Total review cost · $0.014" },
+    { run: { running: false, cost_usd: 0 }, value: "$0.000", label: "Total review cost · $0.000" },
+    { run: { running: false, cost_usd: 0.0001 }, value: "<$0.001", label: "Total review cost · <$0.001" },
+    { run: { running: false, cost_usd: 0.0145 }, value: "$0.015", label: "Total review cost · $0.015" },
+    { run: { running: false, cost_usd: 0.0005 }, value: "$0.001", label: "Total review cost · $0.001" },
+    { run: { running: false, cost_usd: null }, value: "—", label: "Total review cost · unavailable" },
+    { run: { running: true, cost_usd: null }, value: "…", label: "Review in progress" },
     { run: null, value: "—", label: "No review run" },
   ];
   const rows: PrListItem[] = cases.map(({ run }, i) => ({
     number: i + 1, title: `PR ${i + 1}`, author: "Alice", branch: "test", base: "main",
-    head_sha: "abc", additions: 5, deletions: 0, files_count: 1, status: "needs_review", latest_run: run,
+    head_sha: "abc", additions: 5, deletions: 0, files_count: 1, status: "needs_review", review_cost: run,
   }));
   expect(PrListItem.array().parse(rows)).toEqual(rows);
-  expect(PrListItem.safeParse({ ...rows[0], latest_run: { status: "done" } }).success).toBe(false);
+  expect(PrListItem.safeParse({ ...rows[0], review_cost: { running: false } }).success).toBe(false);
   const fetchList = vi.fn(async (_url: string) => Response.json(rows));
   vi.stubGlobal("fetch", fetchList);
   const client = new QueryClient();
@@ -70,10 +66,10 @@ it("renders the latest amounts in the cost column and preserves PR row navigatio
   }
   fireEvent.click(screen.getByText("$0.015"));
   expect(push).toHaveBeenCalledWith("/repos/acme/pulls/4");
-  rows[6]!.latest_run = { status: "done", cost_usd: 0.022 };
+  rows.find((row) => row.review_cost?.running)!.review_cost = { running: false, cost_usd: 0.022 };
   await act(() => client.refetchQueries({ queryKey: ["pulls", "acme"] }));
   expect(await screen.findByText("$0.022")).toBeVisible();
-  expect(screen.queryByTitle("Latest review in progress")).toBeNull();
+  expect(screen.queryByTitle("Review in progress")).toBeNull();
   expect(fetchList).toHaveBeenCalledTimes(2);
   for (const [url] of fetchList.mock.calls) {
     expect(url).toMatch(/\/repos\/acme\/pulls$/);

@@ -176,8 +176,8 @@ export const PrMeta = z.object({
 export type PrMeta = z.infer<typeof PrMeta>;
 
 export const PrListItem = PrMeta.extend({
-  latest_run: z.object({
-    status: z.string().nullable(),
+  review_cost: z.object({
+    running: z.boolean(),
     cost_usd: z.number().finite().nonnegative().nullable(),
   }).nullable(),
 });
