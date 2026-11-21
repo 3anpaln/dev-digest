@@ -9,12 +9,14 @@ export const s = {
     marginBottom: 16,
     flexWrap: "wrap",
   } satisfies CSSProperties,
-  divider: {
-    width: 1,
-    height: 18,
-    background: "var(--border)",
-    margin: "0 2px",
+  severityButton: {
+    borderRadius: 99,
+    fontSize: 11,
   } satisfies CSSProperties,
+  activeSeverityButton: (color: string): CSSProperties => ({
+    background: `color-mix(in srgb, ${color} 65%, black)`,
+    fontWeight: 700,
+  }),
   toggleGroup: {
     marginLeft: "auto",
     display: "flex",

@@ -5,6 +5,7 @@ import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
+import { summarizeFindings } from "../../../_components/FindingsPreview/FindingsPreview";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -71,6 +72,9 @@ export function FindingsTab({
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
   const costByRunId = new Map(prRuns?.map((run) => [run.run_id, run.cost_usd]));
+  const findingsByRunId = new Map(
+    runs.flatMap((review) => review.run_id ? [[review.run_id, summarizeFindings(review.findings)] as const] : []),
+  );
 
   return (
     <section>
@@ -132,6 +136,7 @@ export function FindingsTab({
           <RunHistory
             runs={prRuns ?? []}
             commits={prCommits}
+            findingsByRunId={findingsByRunId}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
             onDelete={handleDelete}

@@ -9,6 +9,7 @@ import type { PrListItem } from "@/lib/types";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
+import { FindingsPreview } from "../FindingsPreview/FindingsPreview";
 
 const costFormat = {
   style: "currency", currency: "USD", minimumFractionDigits: 3, maximumFractionDigits: 3,
@@ -80,6 +81,13 @@ export function PRRow({ pr, repoId }: { pr: PrListItem; repoId: string }) {
           <CircularScore score={pr.score!} size={34} stroke={3} />
         ) : (
           <span style={s.muted}>—</span>
+        )}
+      </div>
+      <div>
+        {pr.findings_summary?.preview.length ? (
+          <FindingsPreview summary={pr.findings_summary} scope="pr" />
+        ) : (
+          <span style={s.muted} aria-label={t("findingsPreview.empty")}>—</span>
         )}
       </div>
       <div>

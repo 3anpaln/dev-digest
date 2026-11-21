@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { PrListItem, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { reviewCostsForPulls } from './latest-run.js';
-import { PrCommentInput } from '@devdigest/shared';
+import { FindingPreview, PrCommentInput, Severity } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
-import { deriveReviewStatus } from './status.js';
+import { deriveReviewStatus, rollupSeverities } from './status.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -112,28 +112,58 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // The score and findings preview describe the same saved review.
     const prIds = rows.map((r) => r.id);
     const reviewCosts = await reviewCostsForPulls(container.db, workspaceId, prIds);
-    const latestReviewByPr = new Map<string, { score: number | null }>();
+    const latestReviewByPr = new Map<string, { id: string; score: number | null }>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ prId: t.reviews.prId, score: t.reviews.score })
+        .select({ id: t.reviews.id, prId: t.reviews.prId, score: t.reviews.score })
         .from(t.reviews)
-        .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
-        .orderBy(desc(t.reviews.createdAt));
+        .where(and(
+          inArray(t.reviews.prId, prIds),
+          eq(t.reviews.workspaceId, workspaceId),
+          eq(t.reviews.kind, 'review'),
+        ))
+        .orderBy(desc(t.reviews.createdAt), desc(t.reviews.id));
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
-        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, rv);
+      }
+    }
+
+    const findingsByReview = new Map<string, FindingPreview[]>();
+    const latestReviewIds = Array.from(latestReviewByPr.values(), (review) => review.id);
+    if (latestReviewIds.length > 0) {
+      const findingRows = await container.db
+        .select({
+          reviewId: t.findings.reviewId,
+          id: t.findings.id,
+          severity: t.findings.severity,
+          title: t.findings.title,
+          category: t.findings.category,
+          file: t.findings.file,
+          start_line: t.findings.startLine,
+          end_line: t.findings.endLine,
+          confidence: t.findings.confidence,
+          rationale: sql<string>`left(${t.findings.rationale}, 280)`,
+        })
+        .from(t.findings)
+        .where(inArray(t.findings.reviewId, latestReviewIds))
+        .orderBy(t.findings.file, t.findings.startLine, t.findings.id);
+      for (const { reviewId, ...row } of findingRows) {
+        const parsed = FindingPreview.safeParse(row);
+        if (!parsed.success) continue;
+        const findings = findingsByReview.get(reviewId) ?? [];
+        findings.push(parsed.data);
+        findingsByReview.set(reviewId, findings);
       }
     }
 
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
+      const findings = review ? findingsByReview.get(review.id) ?? [] : [];
       return {
         id: r.id,
         number: r.number,
@@ -155,6 +185,12 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        findings_summary: review ? {
+          counts: rollupSeverities(findings),
+          preview: Severity.options
+            .flatMap((severity) => findings.filter((finding) => finding.severity === severity))
+            .slice(0, 3),
+        } : null,
         review_cost: reviewCosts.get(r.id) ?? null,
       };
     });

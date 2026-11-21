@@ -62,6 +62,29 @@ export const Finding = z.object({
 });
 export type Finding = z.infer<typeof Finding>;
 
+export const FindingPreview = Finding.pick({
+  id: true,
+  severity: true,
+  category: true,
+  title: true,
+  file: true,
+  start_line: true,
+  end_line: true,
+  rationale: true,
+  confidence: true,
+});
+export type FindingPreview = z.infer<typeof FindingPreview>;
+
+export const FindingSummary = z.object({
+  counts: z.object({
+    critical: z.number().int().nonnegative(),
+    warning: z.number().int().nonnegative(),
+    suggestion: z.number().int().nonnegative(),
+  }),
+  preview: z.array(FindingPreview).max(3),
+});
+export type FindingSummary = z.infer<typeof FindingSummary>;
+
 /** Review — the consolidated structured output of a single agent run. */
 export const Review = z.object({
   verdict: Verdict,

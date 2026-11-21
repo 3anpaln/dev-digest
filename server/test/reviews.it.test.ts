@@ -127,6 +127,45 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
   }
 
+  it('previews only the latest saved review for each PR with full severity counts', async () => {
+    const db = pg.handle.db;
+    const app = await buildApp({ config: config(), db, overrides: {
+      github: new MockGitHubClient({ pulls: [] }),
+    } });
+    try {
+      await app.ready();
+      const { repo, pr } = await setupRepoAndPr(db, workspaceId);
+      const { id: _id, ...base } = pr;
+      await db.insert(t.pullRequests).values({ ...base, number: pr.number + 1 });
+      const [foreign] = await db.insert(t.workspaces).values({ name: 'Foreign review workspace' }).returning();
+      const review = { workspaceId, prId: pr.id, kind: 'review' as const };
+      const [previous, latest] = await db.insert(t.reviews).values([
+        { ...review, score: 70, createdAt: new Date('2026-01-01') },
+        { ...review, score: 55, createdAt: new Date('2026-01-02') },
+        { ...review, score: 99, kind: 'summary', createdAt: new Date('2026-01-03') },
+        { ...review, score: 0, workspaceId: foreign!.id, createdAt: new Date('2026-01-04') },
+      ]).returning();
+      const finding = { file: 'src/input.ts', category: 'bug', confidence: 0.9, rationale: 'x'.repeat(400) };
+      await db.insert(t.findings).values([
+        { ...finding, reviewId: previous!.id, title: 'Previous critical', severity: 'CRITICAL', startLine: 1, endLine: 1 },
+        ...['SUGGESTION', 'CRITICAL', 'WARNING', 'CRITICAL', 'SUGGESTION'].map((severity, i) => ({
+          ...finding, reviewId: latest!.id, title: `Finding ${i}`, severity, startLine: i + 1, endLine: i + 1,
+        })),
+      ]);
+      const response = await app.inject({ url: `/repos/${repo.id}/pulls` });
+      expect(response.statusCode).toBe(200);
+      const rows = PrListItem.array().parse(response.json());
+      const item = rows.find((row) => row.id === pr.id)!;
+      expect(item.score).toBe(55);
+      expect(item.findings_summary?.counts).toEqual({ critical: 2, warning: 1, suggestion: 2 });
+      expect(item.findings_summary?.preview.map((entry) => entry.title)).toEqual(['Finding 1', 'Finding 3', 'Finding 2']);
+      expect(item.findings_summary?.preview[0]?.rationale).toHaveLength(280);
+      expect(rows.find((row) => row.number === pr.number + 1)?.findings_summary).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('totals all review runs per scoped PR, including reruns and missing traces', async () => {
     const queries: string[] = [];
     const db = drizzle(pg.handle.sql, {

@@ -5,7 +5,7 @@
  * and shows the review score ring.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReviewRecord, RunSummary } from "@devdigest/shared";
@@ -91,15 +91,21 @@ it("falls back to three decimals for unsupported runtime precision", () => {
   expect(screen.getByText("<$0.001")).toBeInTheDocument();
 });
 
-it("shows each run's cost in its timeline row and matching review header", () => {
+it("matches timeline findings and costs to the run ID, including runs by the same agent", () => {
   const reviews = ["run-2", "run-1"].map((id): ReviewRecord => ({
     id: `review-${id}`, pr_id: "pr-1", run_id: id, agent_id: "a1",
     agent_name: "Security Reviewer", kind: "review", verdict: null,
-    summary: null, score: 38, model: null, created_at: "2026-06-11T18:44:34.000Z", findings: [],
+    summary: null, score: 38, model: null, created_at: "2026-06-11T18:44:34.000Z", findings: [{
+      id: `finding-${id}`, review_id: `review-${id}`,
+      severity: id === "run-1" ? "WARNING" : "SUGGESTION",
+      title: `Finding for ${id}`, category: "bug", file: "src/input.ts",
+      start_line: 9, end_line: 9, confidence: 0.9, rationale: "Check the input.",
+      accepted_at: null, dismissed_at: null,
+    }],
   }));
   const runs = [
-    run({ cost_usd: 0.00126, tokens_in: 9000, tokens_out: 119 }),
-    run({ run_id: "run-2", cost_usd: 0 }),
+    run({ cost_usd: 0.00126, tokens_in: 9000, tokens_out: 119, findings_count: 1 }),
+    run({ run_id: "run-2", cost_usd: 0, findings_count: 1 }),
     run({ run_id: "run-3", status: "failed", error: "Provider unavailable", tokens_in: 0, tokens_out: 0 }),
   ];
   function View() {
@@ -124,4 +130,12 @@ it("shows each run's cost in its timeline row and matching review header", () =>
   const second = within(container.querySelector<HTMLElement>("#review-run-run-2")!);
   expect(first.getByText("$0.001").previousElementSibling).toHaveTextContent("38");
   expect(second.getByText("$0.000")).toBeInTheDocument();
+  fireEvent.mouseEnter(screen.getByRole("button", { name: "Preview findings · 1 warning" }));
+  const region = () => screen.getByRole("region", { name: "1 finding in this run" });
+  expect(region()).toHaveTextContent("Finding for run-1");
+  expect(region()).not.toHaveTextContent("Finding for run-2");
+  fireEvent.keyDown(document, { key: "Escape" });
+  fireEvent.focus(screen.getByRole("button", { name: "Preview findings · 1 suggestion" }));
+  expect(region()).toHaveTextContent("Finding for run-2");
+  expect(screen.getByText("Provider unavailable")).toBeInTheDocument();
 });

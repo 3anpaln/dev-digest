@@ -28,8 +28,20 @@
   },
   "panel": {
     "hideLowConfidence": "Hide low confidence",
+    "severityCount": "{count, number} {severity}",
+    "clearSeverityFilter": "Clear severity filter",
+    "noFindingsTitle": "No findings in this run",
     "noMatchTitle": "No findings match",
-    "noMatchBody": "Adjust the filters above, or run a review to generate findings."
+    "noMatchBody": "Adjust the filters above to see more findings."
+  },
+  "findingsPreview": {
+    "critical": "{count, plural, one {# critical} other {# critical}}",
+    "warning": "{count, plural, one {# warning} other {# warnings}}",
+    "suggestion": "{count, plural, one {# suggestion} other {# suggestions}}",
+    "trigger": "Preview findings · {breakdown}",
+    "prTotal": "{count, plural, one {# finding} other {# findings}}",
+    "runTotal": "{count, plural, one {# finding in this run} other {# findings in this run}}",
+    "empty": "No findings"
   },
   "runReview": {
     "runAll": "Run all enabled agents",
@@ -91,6 +103,7 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "findings": "Findings",
       "status": "Status",
       "cost": "Cost",
       "updated": "Updated"

@@ -12,3 +12,4 @@ Follow the package that owns the observable behavior.
 Cross-package acceptance criteria belong here. The [roadmap](../README.md#roadmap) describes planned milestones.
 
 - [Latest review cost on PR cards](pr-card-run-cost.md)
+- [Finding icons and previews](pr-finding-previews.md)
