@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import type { PrListItem, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { PrCommentInput, type PrListItem, type PrDetail, type GitHubClient, type PrReviewComment } from '@devdigest/shared';
+import { findingSummariesForReviews } from './finding-previews.js';
 import { reviewCostsForPulls } from './latest-run.js';
-import { FindingPreview, PrCommentInput, Severity } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
-import { deriveReviewStatus, rollupSeverities } from './status.js';
+import { deriveReviewStatus } from './status.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -132,38 +132,12 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    const findingsByReview = new Map<string, FindingPreview[]>();
     const latestReviewIds = Array.from(latestReviewByPr.values(), (review) => review.id);
-    if (latestReviewIds.length > 0) {
-      const findingRows = await container.db
-        .select({
-          reviewId: t.findings.reviewId,
-          id: t.findings.id,
-          severity: t.findings.severity,
-          title: t.findings.title,
-          category: t.findings.category,
-          file: t.findings.file,
-          start_line: t.findings.startLine,
-          end_line: t.findings.endLine,
-          confidence: t.findings.confidence,
-          rationale: sql<string>`left(${t.findings.rationale}, 280)`,
-        })
-        .from(t.findings)
-        .where(inArray(t.findings.reviewId, latestReviewIds))
-        .orderBy(t.findings.file, t.findings.startLine, t.findings.id);
-      for (const { reviewId, ...row } of findingRows) {
-        const parsed = FindingPreview.safeParse(row);
-        if (!parsed.success) continue;
-        const findings = findingsByReview.get(reviewId) ?? [];
-        findings.push(parsed.data);
-        findingsByReview.set(reviewId, findings);
-      }
-    }
+    const findingsByReview = await findingSummariesForReviews(container.db, latestReviewIds);
 
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
-      const findings = review ? findingsByReview.get(review.id) ?? [] : [];
       return {
         id: r.id,
         number: r.number,
@@ -185,12 +159,12 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
-        findings_summary: review ? {
-          counts: rollupSeverities(findings),
-          preview: Severity.options
-            .flatMap((severity) => findings.filter((finding) => finding.severity === severity))
-            .slice(0, 3),
-        } : null,
+        findings_summary: review
+          ? findingsByReview.get(review.id) ?? {
+            counts: { critical: 0, warning: 0, suggestion: 0 },
+            preview: [],
+          }
+          : null,
         review_cost: reviewCosts.get(r.id) ?? null,
       };
     });

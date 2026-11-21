@@ -58,11 +58,9 @@ describe("FindingsPanel", () => {
     }
   });
 
-  it("shows disabled zero counts and an empty state for a run without findings", () => {
+  it("shows an empty state without severity buttons for a run without findings", () => {
     renderWithIntl(<FindingsPanel findings={[]} prId="pr1" />);
-    for (const level of ["CRITICAL", "WARNING", "SUGGESTION"]) {
-      expect(screen.getByRole("button", { name: `0 ${level}` })).toBeDisabled();
-    }
+    expect(screen.queryByRole("button", { pressed: false })).not.toBeInTheDocument();
     expect(screen.getByText("No findings in this run")).toBeInTheDocument();
   });
 
@@ -84,7 +82,7 @@ describe("FindingsPanel", () => {
     const warning = run.getByRole("button", { name: "2 WARNING" });
     const suggestion = run.getByRole("button", { name: "1 SUGGESTION" });
     const otherCritical = otherRun.getByRole("button", { name: "1 CRITICAL" });
-    expect(otherRun.getByRole("button", { name: "0 WARNING" })).toBeDisabled();
+    expect(otherRun.getAllByRole("button", { pressed: false })).toEqual([otherCritical]);
     fireEvent.click(otherCritical);
     expect(otherCritical.style.background).toContain("var(--crit)");
     expect(otherCritical.style.color).toBe("rgb(255, 255, 255)");

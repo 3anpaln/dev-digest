@@ -13,14 +13,21 @@ const levels = [
 ] as const;
 
 export function summarizeFindings(findings: FindingPreview[]): FindingSummary {
+  const buckets = new Map(levels.map(({ severity, countKey }) => [
+    severity, { countKey, count: 0, candidates: [] as FindingPreview[] },
+  ]));
+  for (const finding of findings) {
+    const bucket = buckets.get(finding.severity);
+    if (!bucket) continue;
+    bucket.count += 1;
+    if (bucket.candidates.length < 3) bucket.candidates.push(finding);
+  }
+
   const counts = { critical: 0, warning: 0, suggestion: 0 };
   const preview: FindingPreview[] = [];
-  for (const { severity, countKey } of levels) {
-    for (const finding of findings) {
-      if (finding.severity !== severity) continue;
-      counts[countKey] += 1;
-      if (preview.length < 3) preview.push(finding);
-    }
+  for (const { countKey, count, candidates } of buckets.values()) {
+    counts[countKey] = count;
+    preview.push(...candidates.slice(0, 3 - preview.length));
   }
   return { counts, preview };
 }

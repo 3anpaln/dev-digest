@@ -61,7 +61,8 @@ export function FindingsPanel({
     <div>
       <div style={s.toolbar}>
         {FILTER_SEVERITIES.map((level) => {
-          const count = counts.get(level) ?? 0;
+          const count = counts.get(level);
+          if (!count) return null;
           const active = level === severity;
           const { c: color } = SEV[level];
           return (
@@ -71,7 +72,6 @@ export function FindingsPanel({
               kind="ghost"
               size="sm"
               aria-pressed={active}
-              disabled={count === 0}
               onClick={() => selectSeverity(level)}
               style={{
                 ...s.severityButton,
