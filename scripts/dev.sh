@@ -35,7 +35,14 @@ warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
 
 # --- prerequisites -----------------------------------------------------------
 command -v docker >/dev/null || { echo "docker not found"; exit 1; }
-command -v pnpm   >/dev/null || { echo "pnpm not found (npm i -g pnpm)"; exit 1; }
+if command -v pnpm >/dev/null && [[ "$(pnpm --version)" == 10.* ]]; then
+  PNPM=(pnpm)
+elif command -v npx >/dev/null; then
+  PNPM=(npx --yes pnpm@10.34.9)
+else
+  echo "pnpm 10 or npx is required (use Node.js 22)" >&2
+  exit 1
+fi
 
 # --- env files ---------------------------------------------------------------
 for dir in server client; do
@@ -70,7 +77,7 @@ log "Postgres healthy"
 install_if_needed() {
   if [ ! -d "$1/node_modules" ]; then
     log "installing deps in $1"
-    (cd "$1" && pnpm install)
+    (cd "$1" && "${PNPM[@]}" install --frozen-lockfile)
   fi
 }
 install_if_needed server
@@ -81,11 +88,11 @@ install_if_needed server
 
 # --- migrate + seed ----------------------------------------------------------
 log "applying migrations"
-(cd server && pnpm db:migrate)
+(cd server && "${PNPM[@]}" db:migrate)
 
 if [ "$RUN_SEED" -eq 1 ]; then
   log "seeding demo data"
-  (cd server && pnpm db:seed)
+  (cd server && "${PNPM[@]}" db:seed)
 fi
 
 if [ "$DB_ONLY" -eq 1 ]; then
@@ -102,12 +109,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 log "starting API on :3001 (server)"
-(cd server && pnpm dev) &
+(cd server && "${PNPM[@]}" dev) &
 SERVER_PID=$!
 
 if [ "$RUN_CLIENT" -eq 1 ]; then
   log "starting web on :3000 (client) — Ctrl-C to stop both"
-  (cd client && pnpm dev)
+  (cd client && "${PNPM[@]}" dev)
 else
   log "API running (PID $SERVER_PID) — Ctrl-C to stop"
   wait "$SERVER_PID"
