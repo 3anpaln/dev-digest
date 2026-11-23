@@ -1,6 +1,8 @@
 # Skills
 
-Reusable AI skills that provide specialized knowledge and workflows. Canonical location is `.claude/skills/` with a symlink at `.cursor/skills/ → ../.claude/skills` for Cursor compatibility. Shared with the team via version control.
+Claude Code discovers skills in this directory. Codex discovers the entries in [`.agents/skills/`](../../.agents/skills/), which link back to these same guides. Keep workflow instructions and supporting files here. When adding or renaming a skill, update its Codex entry and this catalog together.
+
+In Codex, use `/skills` to browse the project skills. The Next.js guide can be selected automatically or invoked by name in Codex. Its Claude Code entry remains hidden from the `/` menu.
 
 ## Catalog
 
