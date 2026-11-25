@@ -231,7 +231,7 @@ module.exports = class CacheHandler {
 | SSG | Yes | Yes | Built at deploy time |
 | ISR | Yes | Needs cache handler | Filesystem cache breaks |
 | Image Optimization | Yes | Yes | CPU-intensive, consider CDN |
-| Middleware | Yes | Yes | Runs on Node.js |
+| Middleware | Yes | Yes | Next.js 15.5 defaults to Edge and supports opting into Node.js |
 | Edge Runtime | Limited | Limited | Some features Node-only |
 | `revalidatePath/Tag` | Yes | Needs cache handler | Must share cache |
 | `next/font` | Yes | Yes | Fonts bundled at build |

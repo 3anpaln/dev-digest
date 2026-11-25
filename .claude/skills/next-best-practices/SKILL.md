@@ -1,153 +1,38 @@
 ---
 name: next-best-practices
-description: Next.js best practices - file conventions, RSC boundaries, data patterns, async APIs, metadata, error handling, route handlers, image/font optimization, bundling
+description: Implement or review Next.js App Router routes, Server and Client Component boundaries, navigation, rendering, caching, metadata, and Route Handlers.
 user-invocable: false
+metadata:
+  version: "1.0.0"
 ---
 
 # Next.js Best Practices
 
-Apply these rules when writing or reviewing Next.js code.
+Read the package instructions and check the installed Next.js major version before applying a framework rule. DevDigest uses Next.js 15.5, React 19, and an external Fastify API. Use the App Router references for the installed version.
 
-## File Conventions
+## Decide the route and runtime
 
-See [file-conventions.md](./file-conventions.md) for:
-- Project structure and special files
-- Route segments (dynamic, catch-all, groups)
-- Parallel and intercepting routes
-- Middleware rename in v16 (middleware → proxy)
+- Use the route segment's special files for routing, layout, loading, and error boundaries. Keep route-local implementation under `_components/` in DevDigest. Shared layouts persist across client navigation, so put reactive URL reads in a page or a client child.
+- Keep pages and layouts as Server Components when their work can stay on the server. Put `'use client'` at the narrow interactive entry point. Check its transitive imports and the React-serializable data it receives. Mark privileged modules as server-only when they could be imported into client code.
+- In Next.js 15, await server `params`, page `searchParams`, and request APIs such as `cookies()` and `headers()`. For a statically rendered route, put `useSearchParams()` beneath a nearby Suspense boundary and verify the production build. Check the actual rendering configuration before applying a navigation-hook rule.
+- Use Node.js for server rendering and routes by default. Check dependency compatibility when a specific deployment needs Edge. In v15 use `middleware.ts` when middleware is needed. The Proxy rename and Cache Components configuration belong to v16 migration work.
 
-## RSC Boundaries
+## Decide how data enters and changes
 
-Detect invalid React Server Component patterns.
+- In DevDigest, use the established Fastify endpoints and client hooks for studio reads and writes. For server-rendered reads, call the appropriate data source or external API directly. Add a Next.js Route Handler when the frontend needs an HTTP adapter with its own purpose. A Server Action fits a Next.js-owned mutation that benefits from the React form or mutation lifecycle.
+- Keep authorization and durable business rules with the backend operation that owns the data. Validate and authorize at every sensitive entry point. Keep credentials on the server and pass only the data needed for the view.
+- Distinguish per-render memoization, the Data Cache, cached route output, the browser Router Cache, and the TanStack Query cache. Next.js 15 does not persistently cache fetches or cache GET Route Handlers by default. A route can still be prerendered. Decide what may be shared, its freshness, and how writes invalidate it before changing caching.
 
-See [rsc-boundaries.md](./rsc-boundaries.md) for:
-- Async client component detection (invalid)
-- Non-serializable props detection
-- Server Action exceptions
+## Verify the route
 
-## Async Patterns
+Use a production build when changing server/client boundaries, prerendering, metadata, or navigation hooks. Exercise a direct URL, reload, and client navigation where those paths can behave differently. Use browser or end-to-end coverage for async Server Components and layout-sensitive behavior. Confirm which layer handles expected application failures and unexpected rendering errors.
 
-Next.js 15+ async API changes.
+## References to open when needed
 
-See [async-patterns.md](./async-patterns.md) for:
-- Async `params` and `searchParams`
-- Async `cookies()` and `headers()`
-- Migration codemod
-
-## Runtime Selection
-
-See [runtime-selection.md](./runtime-selection.md) for:
-- Default to Node.js runtime
-- When Edge runtime is appropriate
-
-## Directives
-
-See [directives.md](./directives.md) for:
-- `'use client'`, `'use server'` (React)
-- `'use cache'` (Next.js)
-
-## Functions
-
-See [functions.md](./functions.md) for:
-- Navigation hooks: `useRouter`, `usePathname`, `useSearchParams`, `useParams`
-- Server functions: `cookies`, `headers`, `draftMode`, `after`
-- Generate functions: `generateStaticParams`, `generateMetadata`
-
-## Error Handling
-
-See [error-handling.md](./error-handling.md) for:
-- `error.tsx`, `global-error.tsx`, `not-found.tsx`
-- `redirect`, `permanentRedirect`, `notFound`
-- `forbidden`, `unauthorized` (auth errors)
-- `unstable_rethrow` for catch blocks
-
-## Data Patterns
-
-See [data-patterns.md](./data-patterns.md) for:
-- Server Components vs Server Actions vs Route Handlers
-- Avoiding data waterfalls (`Promise.all`, Suspense, preload)
-- Client component data fetching
-
-## Route Handlers
-
-See [route-handlers.md](./route-handlers.md) for:
-- `route.ts` basics
-- GET handler conflicts with `page.tsx`
-- Environment behavior (no React DOM)
-- When to use vs Server Actions
-
-## Metadata & OG Images
-
-See [metadata.md](./metadata.md) for:
-- Static and dynamic metadata
-- `generateMetadata` function
-- OG image generation with `next/og`
-- File-based metadata conventions
-
-## Image Optimization
-
-See [image.md](./image.md) for:
-- Always use `next/image` over `<img>`
-- Remote images configuration
-- Responsive `sizes` attribute
-- Blur placeholders
-- Priority loading for LCP
-
-## Font Optimization
-
-See [font.md](./font.md) for:
-- `next/font` setup
-- Google Fonts, local fonts
-- Tailwind CSS integration
-- Preloading subsets
-
-## Bundling
-
-See [bundling.md](./bundling.md) for:
-- Server-incompatible packages
-- CSS imports (not link tags)
-- Polyfills (already included)
-- ESM/CommonJS issues
-- Bundle analysis
-
-## Scripts
-
-See [scripts.md](./scripts.md) for:
-- `next/script` vs native script tags
-- Inline scripts need `id`
-- Loading strategies
-- Google Analytics with `@next/third-parties`
-
-## Hydration Errors
-
-See [hydration-error.md](./hydration-error.md) for:
-- Common causes (browser APIs, dates, invalid HTML)
-- Debugging with error overlay
-- Fixes for each cause
-
-## Suspense Boundaries
-
-See [suspense-boundaries.md](./suspense-boundaries.md) for:
-- CSR bailout with `useSearchParams` and `usePathname`
-- Which hooks require Suspense boundaries
-
-## Parallel & Intercepting Routes
-
-See [parallel-routes.md](./parallel-routes.md) for:
-- Modal patterns with `@slot` and `(.)` interceptors
-- `default.tsx` for fallbacks
-- Closing modals correctly with `router.back()`
-
-## Self-Hosting
-
-See [self-hosting.md](./self-hosting.md) for:
-- `output: 'standalone'` for Docker
-- Cache handlers for multi-instance ISR
-- What works vs needs extra setup
-
-## Debug Tricks
-
-See [debug-tricks.md](./debug-tricks.md) for:
-- MCP endpoint for AI-assisted debugging
-- Rebuild specific routes with `--debug-build-paths`
+- Route structure and navigation: [file conventions](file-conventions.md), [functions](functions.md), [Suspense boundaries](suspense-boundaries.md), and [parallel and intercepting routes](parallel-routes.md).
+- Rendering and server APIs: [component boundaries](rsc-boundaries.md), [async request APIs](async-patterns.md), [directives](directives.md), and [runtime selection](runtime-selection.md).
+- Data and failure handling: [data patterns](data-patterns.md), [route handlers](route-handlers.md), [error handling](error-handling.md), and [TanStack Query best practices](../tanstack-query-best-practices/SKILL.md) for the browser cache.
+- Metadata and performance: [metadata](metadata.md), [images](image.md), [fonts](font.md), [bundling](bundling.md), and [scripts](scripts.md).
+- Runtime verification: [hydration errors](hydration-error.md), [self-hosting](self-hosting.md), and [debugging](debug-tricks.md).
+- Code placement and source material: [Frontend architecture](../frontend-architecture/SKILL.md) and the [frontend skills README](../../../docs/frontend-skills/README.md).
 

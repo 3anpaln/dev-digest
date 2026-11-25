@@ -1,67 +1,15 @@
-# Suspense Boundaries
+# Suspense and navigation hooks
 
-Client hooks that cause CSR bailout without Suspense boundaries.
+## Next.js 15
 
-## useSearchParams
+On a statically rendered App Router route, reading `useSearchParams()` causes the client subtree up to the nearest Suspense boundary to render on the client. Wrap the smallest subtree that needs the hook to preserve the static shell. Run the production build because development can behave differently.
 
-Always requires Suspense boundary in static routes. Without it, the entire page becomes client-side rendered.
+For a route that needs query parameters on the server, read the page's async `searchParams` prop. To make a route request-rendered intentionally, use an appropriate server-side mechanism such as `connection()`. A shared layout can persist across navigations, so read live URL state from the page or a Client Component.
 
-```tsx
-// Bad: Entire page becomes CSR
-'use client'
+`usePathname()` is a Client Component hook. In Next.js 15, check for hydration differences if rewrites make the browser pathname differ from the prerendered path.
 
-import { useSearchParams } from 'next/navigation'
+## Cache Components in newer Next.js versions
 
-export default function SearchBar() {
-  const searchParams = useSearchParams()
-  return <div>Query: {searchParams.get('q')}</div>
-}
-```
+When Cache Components are enabled, `usePathname()` may require Suspense if the pathname is unavailable during prerendering. Check the installed version and route configuration before applying that rule.
 
-```tsx
-// Good: Wrap in Suspense
-import { Suspense } from 'react'
-import SearchBar from './search-bar'
-
-export default function Page() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <SearchBar />
-    </Suspense>
-  )
-}
-```
-
-## usePathname
-
-Requires Suspense boundary when route has dynamic parameters.
-
-```tsx
-// In dynamic route [slug]
-// Bad: No Suspense
-'use client'
-import { usePathname } from 'next/navigation'
-
-export function Breadcrumb() {
-  const pathname = usePathname()
-  return <nav>{pathname}</nav>
-}
-```
-
-```tsx
-// Good: Wrap in Suspense
-<Suspense fallback={<BreadcrumbSkeleton />}>
-  <Breadcrumb />
-</Suspense>
-```
-
-If you use `generateStaticParams`, Suspense is optional.
-
-## Quick Reference
-
-| Hook | Suspense Required |
-|------|-------------------|
-| `useSearchParams()` | Yes |
-| `usePathname()` | Yes (dynamic routes) |
-| `useParams()` | No |
-| `useRouter()` | No |
+See [v15 useSearchParams](https://nextjs.org/docs/15/app/api-reference/functions/use-search-params), [v15 usePathname](https://nextjs.org/docs/15/app/api-reference/functions/use-pathname), [Current usePathname](https://nextjs.org/docs/app/api-reference/functions/use-pathname), and [Missing Suspense boundary](https://nextjs.org/docs/messages/missing-suspense-with-csr-bailout).

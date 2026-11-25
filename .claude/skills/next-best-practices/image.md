@@ -2,13 +2,11 @@
 
 Use `next/image` for automatic image optimization.
 
-## Always Use next/image
+## Choose optimized images
+
+Use the image component when responsive sizing, format conversion, or lazy loading improves the route. Check the asset type, source, and deployment support before changing existing image rendering.
 
 ```tsx
-// Bad: Avoid native img
-<img src="/hero.png" alt="Hero" />
-
-// Good: Use next/image
 import Image from 'next/image'
 <Image src="/hero.png" alt="Hero" width={800} height={400} />
 ```
@@ -117,7 +115,7 @@ import heroImage from './hero.png'
 
 ## Priority Loading
 
-Use `priority` for above-the-fold images (LCP):
+In Next.js 15, use `priority` for a measured or likely LCP image that should be preloaded. Check the image API for the installed version before using preload options:
 
 ```tsx
 // Hero image - loads immediately
