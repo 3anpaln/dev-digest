@@ -94,19 +94,74 @@ d('GET /agents/:id/versions', () => {
     await app.close();
   });
 
-  it('toggling enabled does NOT create a new version', async () => {
+  it('persists enabled toggles without creating a new version', async () => {
     const app = await makeApp();
-    const agentId = (
-      await app.inject({ method: 'POST', url: '/agents', payload: createBody })
-    ).json().id as string;
+    try {
+      const created = await app.inject({ method: 'POST', url: '/agents', payload: createBody });
+      expect(created.statusCode).toBe(201);
+      expect(created.json()).toMatchObject({ enabled: true, version: 1 });
+      const url = `/agents/${created.json().id}`;
 
-    await app.inject({ method: 'PUT', url: `/agents/${agentId}`, payload: { enabled: false } });
+      for (const enabled of [false, true]) {
+        const updated = await app.inject({ method: 'PUT', url, payload: { enabled } });
+        expect(updated.statusCode).toBe(200);
+        expect(updated.json()).toMatchObject({ enabled, version: 1 });
 
-    const versions = (
-      await app.inject({ method: 'GET', url: `/agents/${agentId}/versions` })
-    ).json();
-    expect(versions).toHaveLength(1);
-    await app.close();
+        const persisted = await app.inject({ url });
+        expect(persisted.statusCode).toBe(200);
+        expect(persisted.json()).toMatchObject({ enabled, version: 1 });
+      }
+
+      const versions = await app.inject({ url: `${url}/versions` });
+      expect(versions.statusCode).toBe(200);
+      expect(versions.json()).toMatchObject([{ version: 1 }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('serializes competing edits into distinct version snapshots', async () => {
+    const app = await makeApp();
+    try {
+      const created = await app.inject({ method: 'POST', url: '/agents', payload: createBody });
+      expect(created.statusCode).toBe(201);
+      const url = `/agents/${created.json().id}`;
+
+      const updates = await Promise.all([
+        app.inject({ method: 'PUT', url, payload: { model: 'gpt-4o' } }),
+        app.inject({ method: 'PUT', url, payload: { system_prompt: 'Check the tests.' } }),
+      ]);
+
+      expect(updates.map((res) => res.statusCode)).toEqual([200, 200]);
+      expect(updates.map((res) => res.json().version).sort()).toEqual([2, 3]);
+      const versions = (await app.inject({ url: `${url}/versions` })).json();
+      expect(versions.map((v: { version: number }) => v.version)).toEqual([3, 2, 1]);
+      expect(versions[0].config).toMatchObject({ model: 'gpt-4o', system_prompt: 'Check the tests.' });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rolls back the agent update if its snapshot cannot be inserted', async () => {
+    const app = await makeApp();
+    try {
+      const created = await app.inject({ method: 'POST', url: '/agents', payload: createBody });
+      expect(created.statusCode).toBe(201);
+      const agentId = created.json().id as string;
+      const url = `/agents/${agentId}`;
+      const { db } = pg.handle;
+      const original = await new AgentsRepository(db).getVersion(agentId, 1);
+      await db.insert(t.agentVersions).values({ agentId, version: 2, configJson: original!.configJson });
+
+      const updated = await app.inject({ method: 'PUT', url, payload: { model: 'gpt-4o' } });
+      expect(updated.statusCode).toBe(500);
+
+      const current = await app.inject({ url });
+      expect(current.statusCode).toBe(200);
+      expect(current.json()).toMatchObject({ version: 1, model: createBody.model });
+    } finally {
+      await app.close();
+    }
   });
 
   it('GET /agents/:id/versions/:version returns one snapshot', async () => {
@@ -164,7 +219,7 @@ d('GET /agents/:id/versions', () => {
       systemPrompt: 'x',
     });
 
-    const service = new AgentsService({ db } as unknown as Container);
+    const service = new AgentsService({ agentsRepo: repo } as Container);
     const [defaultWorkspace] = await db
       .select({ id: t.workspaces.id })
       .from(t.workspaces)

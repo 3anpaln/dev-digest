@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
 import type { RunSummary, RunTrace } from '@devdigest/shared';
@@ -190,7 +190,16 @@ export async function saveRunTrace(db: Db, runId: string, trace: RunTrace): Prom
     .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace } });
 }
 
-export async function getRunTrace(db: Db, runId: string): Promise<RunTrace | undefined> {
-  const [row] = await db.select().from(t.runTraces).where(eq(t.runTraces.runId, runId));
+/** A trace inherits its workspace from its required run, even after its PR is deleted. */
+export async function getRunTrace(db: Db, workspaceId: string, runId: string): Promise<RunTrace | undefined> {
+  const [row] = await db.select({ trace: t.runTraces.trace })
+    .from(t.runTraces)
+    .innerJoin(t.agentRuns, eq(t.agentRuns.id, t.runTraces.runId))
+    .leftJoin(t.pullRequests, eq(t.pullRequests.id, t.agentRuns.prId))
+    .where(and(
+      eq(t.runTraces.runId, runId),
+      eq(t.agentRuns.workspaceId, workspaceId),
+      or(isNull(t.agentRuns.prId), eq(t.pullRequests.workspaceId, workspaceId)),
+    ));
   return row ? (row.trace as RunTrace) : undefined;
 }

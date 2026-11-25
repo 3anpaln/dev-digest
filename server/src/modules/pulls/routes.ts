@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { PrCommentInput, type FindingPreview, type PrListItem, type PrDetail, type GitHubClient, type PrReviewComment } from '@devdigest/shared';
+import { PrCommentInput, type FindingPreview, type PrListItem, PrDetail, type GitHubClient, type PrReviewComment } from '@devdigest/shared';
 import { findingSummariesForPulls } from './finding-previews.js';
 import { reviewCostsForPulls } from './latest-run.js';
+import { readPullSnapshot, savePullSnapshot } from './snapshot.js';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
@@ -187,86 +188,22 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     const [repo] = await container.db
       .select()
       .from(t.repos)
-      .where(eq(t.repos.id, pr.repoId));
+      .where(and(eq(t.repos.id, pr.repoId), eq(t.repos.workspaceId, workspaceId)));
     if (!repo) throw new NotFoundError('Repo not found');
 
-    // Local-first: refresh detail from GitHub when a token is configured;
-    // otherwise serve the persisted files/commits/body (seeded or previously
-    // imported) so PR detail works offline.
     try {
       const gh = await container.github();
-      const detail = await gh.getPullRequest({ owner: repo.owner, name: repo.name }, pr.number);
-
-      await container.db.delete(t.prFiles).where(eq(t.prFiles.prId, pr.id));
-      if (detail.files.length > 0) {
-        await container.db.insert(t.prFiles).values(
-          detail.files.map((f) => ({
-            prId: pr.id,
-            path: f.path,
-            additions: f.additions,
-            deletions: f.deletions,
-            patch: f.patch ?? null,
-          })),
-        );
+      const detail = PrDetail.parse(await gh.getPullRequest({ owner: repo.owner, name: repo.name }, pr.number));
+      if (await savePullSnapshot(container.db, workspaceId, pr.id, detail)) {
+        return { ...detail, id: pr.id };
       }
-      await container.db.delete(t.prCommits).where(eq(t.prCommits.prId, pr.id));
-      if (detail.commits.length > 0) {
-        await container.db.insert(t.prCommits).values(
-          detail.commits.map((c) => ({
-            prId: pr.id,
-            sha: c.sha,
-            message: c.message,
-            author: c.author,
-            committedAt: c.committed_at ? new Date(c.committed_at) : null,
-          })),
-        );
-      }
-      await container.db
-        .update(t.pullRequests)
-        .set({
-          body: detail.body ?? null,
-          // Diff stats aren't on GitHub's PR-list payload — backfill them from
-          // the detail fetch so the Pull Requests list shows real size/files.
-          additions: detail.additions,
-          deletions: detail.deletions,
-          filesCount: detail.files_count,
-        })
-        .where(eq(t.pullRequests.id, pr.id));
-
-      return { ...detail, id: pr.id };
-    } catch (err) {
-      app.log.warn({ err }, 'GitHub PR detail refresh skipped (no token / offline); serving persisted detail');
-      const files = await container.db.select().from(t.prFiles).where(eq(t.prFiles.prId, pr.id));
-      const commits = await container.db.select().from(t.prCommits).where(eq(t.prCommits.prId, pr.id));
-      return {
-        id: pr.id,
-        number: pr.number,
-        title: pr.title,
-        author: pr.author,
-        branch: pr.branch,
-        base: pr.base,
-        head_sha: pr.headSha,
-        additions: pr.additions,
-        deletions: pr.deletions,
-        files_count: pr.filesCount,
-        status: pr.status as PrDetail['status'],
-        opened_at: pr.openedAt?.toISOString() ?? null,
-        updated_at: pr.updatedAt?.toISOString() ?? null,
-        body: pr.body ?? null,
-        files: files.map((f) => ({
-          path: f.path,
-          additions: f.additions,
-          deletions: f.deletions,
-          patch: f.patch ?? null,
-        })),
-        commits: commits.map((c) => ({
-          sha: c.sha,
-          message: c.message,
-          author: c.author,
-          committed_at: c.committedAt?.toISOString() ?? null,
-        })),
-      };
+    } catch {
+      app.log.warn('PR detail refresh failed. Reading the persisted snapshot.');
     }
+
+    const snapshot = await readPullSnapshot(container.db, workspaceId, pr.id);
+    if (!snapshot) throw new NotFoundError('Pull request not found');
+    return snapshot;
   });
 
   // ---- Inline review comments (Files changed tab) -------------------------
