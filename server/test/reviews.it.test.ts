@@ -226,6 +226,77 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     }
   });
 
+  it('scopes reviews and finding actions to the workspace of the PR and the review', async () => {
+    const { db } = pg.handle;
+    const app = await appWith(REVIEW_FIXTURE);
+    try {
+      const { pr } = await setupRepoAndPr(db, workspaceId);
+      const [foreign] = await db.insert(t.workspaces).values({ name: 'Review isolation' }).returning();
+      const [localReview, foreignReview] = await db.insert(t.reviews).values([
+        { workspaceId, prId: pr.id, kind: 'review' },
+        { workspaceId: foreign!.id, prId: pr.id, kind: 'review' },
+      ]).returning();
+      const finding = {
+        file: 'src/config.ts', startLine: 11, endLine: 11, severity: 'WARNING',
+        category: 'bug', rationale: 'Check the configuration.', confidence: 0.9,
+      };
+      const [localFinding, foreignFinding] = await db.insert(t.findings).values([
+        { ...finding, reviewId: localReview!.id, title: 'Local review finding' },
+        { ...finding, reviewId: foreignReview!.id, title: 'Foreign review finding' },
+      ]).returning();
+
+      const response = await app.inject({ url: `/pulls/${pr.id}/reviews` });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        expect.objectContaining({ id: localReview!.id, findings: [expect.objectContaining({ id: localFinding!.id })] }),
+      ]);
+
+      const action = await app.inject({ method: 'POST', url: `/findings/${foreignFinding!.id}/accept` });
+      expect(action.statusCode).toBe(404);
+      const [stored] = await db.select().from(t.findings).where(eq(t.findings.id, foreignFinding!.id));
+      expect(stored?.acceptedAt).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns the entire saved PR snapshot when refresh fails during replacement', async () => {
+    const { db } = pg.handle;
+    const commit = { sha: 'b2c3d4e5', message: 'Refine limiter', author: 'marisa.koch', committed_at: 'invalid-date' };
+    const github = new MockGitHubClient({ detail: {
+      body: 'Updated description.', additions: 5, deletions: 2, files_count: 1,
+      files: [{ path: 'src/limiter.ts', additions: 5, deletions: 2 }],
+      commits: [commit],
+    } });
+    const app = await buildApp({ config: config(), db, overrides: { github } });
+    try {
+      const { pr } = await setupRepoAndPr(db, workspaceId);
+      await db.insert(t.prCommits).values({
+        prId: pr.id, sha: pr.headSha, message: 'Add limiter', author: pr.author,
+      });
+      const url = `/pulls/${pr.id}`;
+
+      const fallback = await app.inject({ url });
+      expect(fallback.statusCode).toBe(200);
+      expect(fallback.json()).toMatchObject({
+        id: pr.id, body: pr.body, additions: 1, deletions: 0, files_count: 1,
+        files: [{ path: 'src/config.ts', additions: 1, deletions: 0 }],
+        commits: [{ sha: pr.headSha }],
+      });
+
+      commit.committed_at = '2026-01-02T00:00:00.000Z';
+      const refreshed = await app.inject({ url });
+      expect(refreshed.statusCode).toBe(200);
+      expect(refreshed.json()).toMatchObject({ id: pr.id, body: 'Updated description.', commits: [commit] });
+      expect(await db.select().from(t.prFiles).where(eq(t.prFiles.prId, pr.id)))
+        .toMatchObject([{ path: 'src/limiter.ts' }]);
+      expect(await db.select().from(t.prCommits).where(eq(t.prCommits.prId, pr.id)))
+        .toMatchObject([{ sha: commit.sha }]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('totals all review runs per scoped PR, including reruns and missing traces', async () => {
     const queries: string[] = [];
     const db = drizzle(pg.handle.sql, {
@@ -302,6 +373,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       const traceCost = async (id: string) => (await app.inject({ url: `/runs/${id}/trace` })).json().stats.cost_usd;
       expect(await traceCost(older!.id)).toBe(0.005);
       expect(await traceCost(rerun)).toBe(0.01424);
+      expect((await app.inject({ url: `/runs/${foreignRun}/trace` })).statusCode).toBe(404);
       const history = await app.inject({ url: `/pulls/${pr.id}/runs` });
       expect(history.statusCode).toBe(200);
       const runSummaries = history.json();

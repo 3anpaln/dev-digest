@@ -3,7 +3,7 @@ import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
 import { DEFAULT_AGENT_DESCRIPTION, INITIAL_AGENT_VERSION } from './constants.js';
-import { isConfigChange } from './helpers.js';
+import type { AgentUpdateStore } from './application/update-agent.js';
 
 /**
  * A2 — agents data-access. Owns `agents`, `agent_versions`, and the
@@ -29,26 +29,13 @@ export interface InsertAgent {
   createdBy?: string | null;
 }
 
-export interface UpdateAgent {
-  name?: string;
-  description?: string;
-  provider?: Provider;
-  model?: string;
-  systemPrompt?: string;
-  outputSchema?: unknown;
-  strategy?: ReviewStrategy;
-  ciFailOn?: CiFailOn;
-  repoIntel?: boolean;
-  enabled?: boolean;
-}
-
 /** A skill linked to an agent (with its order), joined from agent_skills. */
 export interface LinkedSkillRow {
   skill: typeof t.skills.$inferSelect;
   order: number;
 }
 
-export class AgentsRepository {
+export class AgentsRepository implements AgentUpdateStore {
   constructor(private db: Db) {}
 
   async list(workspaceId: string): Promise<AgentRow[]> {
@@ -81,89 +68,74 @@ export class AgentsRepository {
     return rows.length > 0;
   }
 
-  /** Insert an agent AND record version 1 in agent_versions (immutable snapshot). */
+  /** Insert the agent and its initial configuration snapshot together. */
   async insert(values: InsertAgent): Promise<AgentRow> {
-    const [row] = await this.db
-      .insert(t.agents)
-      .values({
-        workspaceId: values.workspaceId,
-        name: values.name,
-        description: values.description ?? DEFAULT_AGENT_DESCRIPTION,
-        provider: values.provider,
-        model: values.model,
-        systemPrompt: values.systemPrompt,
-        outputSchema: (values.outputSchema as object | undefined) ?? null,
-        ...(values.strategy !== undefined ? { strategy: values.strategy } : {}),
-        ...(values.ciFailOn !== undefined ? { ciFailOn: values.ciFailOn } : {}),
-        ...(values.repoIntel !== undefined ? { repoIntel: values.repoIntel } : {}),
-        enabled: values.enabled ?? true,
-        version: INITIAL_AGENT_VERSION,
-        createdBy: values.createdBy ?? null,
-      })
-      .returning();
-    await this.snapshotVersion(row!, INITIAL_AGENT_VERSION);
-    return row!;
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(t.agents)
+        .values({
+          workspaceId: values.workspaceId,
+          name: values.name,
+          description: values.description ?? DEFAULT_AGENT_DESCRIPTION,
+          provider: values.provider,
+          model: values.model,
+          systemPrompt: values.systemPrompt,
+          outputSchema: values.outputSchema ?? null,
+          ...(values.strategy !== undefined ? { strategy: values.strategy } : {}),
+          ...(values.ciFailOn !== undefined ? { ciFailOn: values.ciFailOn } : {}),
+          ...(values.repoIntel !== undefined ? { repoIntel: values.repoIntel } : {}),
+          enabled: values.enabled ?? true,
+          version: INITIAL_AGENT_VERSION,
+          createdBy: values.createdBy ?? null,
+        })
+        .returning();
+      await this.snapshotVersion(tx, row!);
+      return row!;
+    });
   }
 
-  /**
-   * Update an agent. Any config change bumps the version and snapshots the new
-   * config into agent_versions (reproducibility for eval).
-   */
   async update(
     workspaceId: string,
     id: string,
-    patch: UpdateAgent,
+    plan: Parameters<AgentUpdateStore['update']>[2],
   ): Promise<AgentRow | undefined> {
-    const existing = await this.getById(workspaceId, id);
-    if (!existing) return undefined;
+    return this.db.transaction(async (tx) => {
+      const scope = and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, id));
+      const [current] = await tx.select().from(t.agents).where(scope).for('update');
+      if (!current) return undefined;
 
-    // A config-affecting change (anything except just toggling enabled) bumps version.
-    const configChanged = isConfigChange(existing, patch);
-    const nextVersion = configChanged ? existing.version + 1 : existing.version;
-
-    const [row] = await this.db
-      .update(t.agents)
-      .set({
-        ...(patch.name !== undefined ? { name: patch.name } : {}),
-        ...(patch.description !== undefined ? { description: patch.description } : {}),
-        ...(patch.provider !== undefined ? { provider: patch.provider } : {}),
-        ...(patch.model !== undefined ? { model: patch.model } : {}),
-        ...(patch.systemPrompt !== undefined ? { systemPrompt: patch.systemPrompt } : {}),
-        ...(patch.outputSchema !== undefined
-          ? { outputSchema: patch.outputSchema as object }
-          : {}),
-        ...(patch.strategy !== undefined ? { strategy: patch.strategy } : {}),
-        ...(patch.ciFailOn !== undefined ? { ciFailOn: patch.ciFailOn } : {}),
-        ...(patch.repoIntel !== undefined ? { repoIntel: patch.repoIntel } : {}),
-        ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-        ...(configChanged ? { version: nextVersion } : {}),
-      })
-      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, id)))
-      .returning();
-
-    if (configChanged && row) await this.snapshotVersion(row, nextVersion);
-    return row;
+      const { patch, version } = plan(current);
+      const [row] = await tx
+        .update(t.agents)
+        .set({ ...patch, version })
+        .where(scope)
+        .returning();
+      if (row && version !== current.version) await this.snapshotVersion(tx, row);
+      return row;
+    });
   }
 
-  private async snapshotVersion(row: AgentRow, version: number): Promise<void> {
-    const skills = await this.skillIdsForAgent(row.id);
-    await this.db
-      .insert(t.agentVersions)
-      .values({
-        agentId: row.id,
-        version,
-        configJson: {
-          provider: row.provider,
-          model: row.model,
-          system_prompt: row.systemPrompt,
-          output_schema: row.outputSchema,
-          strategy: row.strategy,
-          ci_fail_on: row.ciFailOn,
-          repo_intel: row.repoIntel,
-          skills,
-        },
-      })
-      .onConflictDoNothing();
+  private async snapshotVersion(db: Pick<Db, 'select' | 'insert'>, row: AgentRow): Promise<void> {
+    const links = await db
+      .select({ id: t.agentSkills.skillId })
+      .from(t.agentSkills)
+      .where(eq(t.agentSkills.agentId, row.id))
+      .orderBy(asc(t.agentSkills.order));
+
+    await db.insert(t.agentVersions).values({
+      agentId: row.id,
+      version: row.version,
+      configJson: {
+        provider: row.provider,
+        model: row.model,
+        system_prompt: row.systemPrompt,
+        output_schema: row.outputSchema,
+        strategy: row.strategy,
+        ci_fail_on: row.ciFailOn,
+        repo_intel: row.repoIntel,
+        skills: links.map((link) => link.id),
+      },
+    });
   }
 
   // ---- agent_versions (immutable config snapshots) ------------------------
@@ -197,11 +169,6 @@ export class AgentsRepository {
       .where(eq(t.agentSkills.agentId, agentId))
       .orderBy(asc(t.agentSkills.order));
     return rows.map((r) => ({ skill: r.skill, order: r.order }));
-  }
-
-  async skillIdsForAgent(agentId: string): Promise<string[]> {
-    const links = await this.linkedSkills(agentId);
-    return links.map((l) => l.skill.id);
   }
 
   /** Link a skill to an agent at a given order (idempotent: upserts order). */

@@ -65,6 +65,9 @@ jobs:
 
       - run: pnpm typecheck
 
+      - name: Check backend architecture boundaries
+        run: pnpm exec depcruise --config dependency-cruiser.architecture.cjs src/modules/agents
+
   unit:
     name: tests
     runs-on: ubuntu-latest

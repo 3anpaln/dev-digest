@@ -8,7 +8,8 @@ import type {
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
-import { AgentsRepository } from './repository.js';
+import type { AgentsRepository } from './repository.js';
+import { updateAgent } from './application/update-agent.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
 
 /**
@@ -52,7 +53,7 @@ export class AgentsService {
   private repo: AgentsRepository;
 
   constructor(private container: Container) {
-    this.repo = new AgentsRepository(container.db);
+    this.repo = container.agentsRepo;
   }
 
   async list(workspaceId: string): Promise<Agent[]> {
@@ -93,7 +94,7 @@ export class AgentsService {
     id: string,
     patch: UpdateAgentInput,
   ): Promise<Agent | undefined> {
-    const row = await this.repo.update(workspaceId, id, {
+    const row = await updateAgent(this.repo, workspaceId, id, {
       ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.description !== undefined ? { description: patch.description } : {}),
       ...(patch.provider !== undefined ? { provider: patch.provider } : {}),

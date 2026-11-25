@@ -57,12 +57,13 @@ export async function insertFindings(
 /** Reviews for a PR (newest first), each with its findings. */
 export async function reviewsForPull(
   db: Db,
+  workspaceId: string,
   prId: string,
 ): Promise<{ review: ReviewRow; findings: FindingRow[] }[]> {
   const reviews = await db
     .select()
     .from(t.reviews)
-    .where(eq(t.reviews.prId, prId))
+    .where(and(eq(t.reviews.workspaceId, workspaceId), eq(t.reviews.prId, prId)))
     .orderBy(desc(t.reviews.createdAt));
   if (reviews.length === 0) return [];
   const ids = reviews.map((r) => r.id);
