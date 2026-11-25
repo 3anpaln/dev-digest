@@ -3,8 +3,11 @@
 import React, { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useFormatter, useTranslations } from "next-intl";
-import { CategoryTag, ConfidenceNum, Icon, SEV } from "@devdigest/ui";
+import { Icon, SEV } from "@devdigest/ui";
 import type { FindingPreview, FindingSummary } from "@devdigest/shared";
+import { FindingPreviewItems, PrFindingPreviewItems } from "./FindingPreviewItems";
+
+const MAX_PREVIEW_HEIGHT = 360;
 
 const levels = [
   { severity: "CRITICAL", countKey: "critical" },
@@ -39,46 +42,40 @@ const card: CSSProperties = {
   background: "var(--bg-elevated)",
   boxShadow: "0 6px 20px #0005",
   color: "var(--text-primary)",
+  boxSizing: "border-box",
   overflowY: "auto",
+  overscrollBehaviorY: "contain",
 };
 
-const itemHeader: CSSProperties = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5 };
-const excerpt: CSSProperties = {
-  fontSize: 11,
-  color: "var(--text-secondary)",
-  overflow: "hidden",
-  overflowWrap: "anywhere",
-  display: "-webkit-box",
-  WebkitBoxOrient: "vertical",
-  WebkitLineClamp: 2,
-};
-
-export function FindingsPreview({ summary, scope }: {
+export function FindingsPreview({ summary, scope, prId }: {
   summary: FindingSummary;
   scope: "pr" | "run";
+  prId?: string;
 }) {
   const t = useTranslations("prReview.findingsPreview");
   const format = useFormatter();
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [position, setPosition] = useState<CSSProperties | null>(null);
   const total = summary.counts.critical + summary.counts.warning + summary.counts.suggestion;
   const visibleLevels = levels.filter(({ countKey }) => summary.counts[countKey] > 0);
   const heading = t(scope === "run" ? "runTotal" : "prTotal", { count: total });
 
   function openPreview() {
+    clearTimeout(closeTimer.current);
     if (!trigger.current) return;
     const { left, top, bottom } = trigger.current.getBoundingClientRect();
     const width = Math.min(308, window.innerWidth - 16);
     const spaceBelow = window.innerHeight - bottom;
-    const above = spaceBelow < 260 && top > spaceBelow;
+    const above = spaceBelow < MAX_PREVIEW_HEIGHT && top > spaceBelow;
     setPosition({
       left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
       width,
       top: above ? undefined : bottom,
       bottom: above ? window.innerHeight - top : undefined,
-      maxHeight: Math.max(0, (above ? top : spaceBelow) - 8),
+      maxHeight: Math.min(MAX_PREVIEW_HEIGHT, Math.max(0, (above ? top : spaceBelow) - 8)),
     });
   }
 
@@ -93,7 +90,9 @@ export function FindingsPreview({ summary, scope }: {
         && !isInsidePanel(event.target)) close();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      if (isInsidePanel(document.activeElement)) trigger.current?.focus();
+      close();
     };
     const onScroll = (event: Event) => {
       if (!isInsidePanel(event.target)) close();
@@ -103,6 +102,7 @@ export function FindingsPreview({ summary, scope }: {
     window.addEventListener("resize", close);
     window.addEventListener("scroll", onScroll, true);
     return () => {
+      clearTimeout(closeTimer.current);
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", close);
@@ -117,7 +117,16 @@ export function FindingsPreview({ summary, scope }: {
     <span
       onClick={(event) => event.stopPropagation()}
       onMouseEnter={openPreview}
-      onMouseLeave={() => setPosition(null)}
+      onMouseLeave={() => {
+        if (!isOpen) return;
+        clearTimeout(closeTimer.current);
+        closeTimer.current = setTimeout(() => setPosition(null), 150);
+      }}
+      onBlur={(event) => {
+        if (event.relatedTarget !== trigger.current && !panel.current?.contains(event.relatedTarget)) {
+          setPosition(null);
+        }
+      }}
       style={{ display: "inline-flex" }}
     >
       <button
@@ -127,8 +136,13 @@ export function FindingsPreview({ summary, scope }: {
         aria-expanded={isOpen}
         aria-controls={isOpen ? id : undefined}
         onFocus={openPreview}
-        onBlur={() => setPosition(null)}
         onClick={openPreview}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && panel.current) {
+            event.preventDefault();
+            panel.current.focus({ preventScroll: true });
+          }
+        }}
         style={{
           display: "inline-flex",
           gap: 6,
@@ -163,35 +177,18 @@ export function FindingsPreview({ summary, scope }: {
           id={id}
           role="region"
           aria-label={heading}
+          tabIndex={-1}
+          onMouseEnter={() => clearTimeout(closeTimer.current)}
           style={{ ...card, ...position, position: "fixed", zIndex: 80, cursor: "default" }}
         >
           <div style={{ marginBottom: 6, fontSize: 10, textTransform: "uppercase", color: "var(--text-muted)" }}>
             {heading}
           </div>
-          {summary.preview.map((finding) => {
-            const { c: color, icon } = SEV[finding.severity];
-            const SeverityIcon = Icon[icon];
-            const line = finding.end_line > finding.start_line
-              ? `${finding.start_line}–${finding.end_line}`
-              : finding.start_line;
-            return (
-              <div key={finding.id} style={{ padding: "6px 0", borderTop: "1px solid var(--border)" }}>
-                <div style={itemHeader}>
-                  <SeverityIcon size={12} style={{ color }} aria-hidden="true" />
-                  <span className="sr-only">{SEV[finding.severity].label}</span>
-                  <strong style={{ fontSize: 12, overflowWrap: "anywhere" }}>{finding.title}</strong>
-                  <CategoryTag category={finding.category} />
-                </div>
-                <div style={itemHeader}>
-                  <span className="mono" style={{ color: "var(--accent-text)", fontSize: 10, overflowWrap: "anywhere" }}>
-                    {finding.file}:{line}
-                  </span>
-                  <ConfidenceNum value={finding.confidence} />
-                </div>
-                <div style={excerpt}>{finding.rationale.slice(0, 280)}</div>
-              </div>
-            );
-          })}
+          {scope === "pr" && prId && total > summary.preview.length ? (
+            <PrFindingPreviewItems prId={prId} preview={summary.preview} />
+          ) : (
+            <FindingPreviewItems findings={summary.preview} />
+          )}
         </div>,
         document.body,
       )}

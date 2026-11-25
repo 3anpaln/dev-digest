@@ -1,39 +1,67 @@
 import { FindingCategory, FindingPreview, Severity, type FindingSummary } from '@devdigest/shared';
-import { and, between, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, between, desc, eq, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
-import { findings } from '../../db/schema.js';
+import { agentRuns, findings, reviews } from '../../db/schema.js';
 
-export async function findingSummariesForReviews(db: Db, reviewIds: string[]) {
+export async function findingSummariesForPulls(
+  db: Db, workspaceId: string, prIds: string[], limit: number | 'all' = 3,
+) {
   const summaries = new Map<string, FindingSummary>();
-  if (reviewIds.length === 0) return summaries;
+  if (prIds.length === 0) return summaries;
 
-  // Rank only the keys needed for ordering. Fetch preview text after limiting each review.
+  // Pick each agent's latest attempt before checking its status so a rerun
+  // with no results cannot bring an older run's findings back into the list.
+  const latestRuns = db.$with('latest_agent_runs').as(
+    db.selectDistinctOn([agentRuns.prId, agentRuns.agentId], {
+      runId: agentRuns.id,
+      prId: agentRuns.prId,
+      agentId: agentRuns.agentId,
+      status: agentRuns.status,
+    }).from(agentRuns)
+      .where(and(
+        eq(agentRuns.workspaceId, workspaceId),
+        inArray(agentRuns.prId, prIds),
+        isNotNull(agentRuns.agentId),
+      ))
+      .orderBy(agentRuns.prId, agentRuns.agentId, desc(agentRuns.ranAt), desc(agentRuns.id)),
+  );
+
+  // Count across the selected reviews before fetching preview text. The list
+  // caps the number of rows per PR, and the open popover can request all rows.
   const ranked = db.select({
     id: findings.id,
-    reviewId: findings.reviewId,
+    prId: reviews.prId,
     rank: sql<number>`row_number() over (
-      partition by ${findings.reviewId}
+      partition by ${reviews.prId}
       order by case ${findings.severity}
-        when 'CRITICAL' then 1 when 'WARNING' then 2 else 3 end,
+        when 'CRITICAL' then 1 when 'WARNING' then 2 when 'SUGGESTION' then 3 else 4 end,
         ${findings.file}, ${findings.startLine}, ${findings.id}
     )`.as('preview_rank'),
     critical: sql<number>`count(*) filter (where ${findings.severity} = 'CRITICAL')
-      over (partition by ${findings.reviewId})`.mapWith(Number).as('critical_count'),
+      over (partition by ${reviews.prId})`.mapWith(Number).as('critical_count'),
     warning: sql<number>`count(*) filter (where ${findings.severity} = 'WARNING')
-      over (partition by ${findings.reviewId})`.mapWith(Number).as('warning_count'),
+      over (partition by ${reviews.prId})`.mapWith(Number).as('warning_count'),
     suggestion: sql<number>`count(*) filter (where ${findings.severity} = 'SUGGESTION')
-      over (partition by ${findings.reviewId})`.mapWith(Number).as('suggestion_count'),
-  }).from(findings)
-    .where(and(
-      inArray(findings.reviewId, reviewIds),
+      over (partition by ${reviews.prId})`.mapWith(Number).as('suggestion_count'),
+  }).from(latestRuns)
+    .innerJoin(reviews, and(
+      eq(reviews.runId, latestRuns.runId),
+      eq(reviews.prId, latestRuns.prId),
+      eq(reviews.workspaceId, workspaceId),
+      eq(reviews.agentId, latestRuns.agentId),
+      eq(reviews.kind, 'review'),
+    ))
+    .leftJoin(findings, and(
+      eq(findings.reviewId, reviews.id),
       inArray(findings.severity, Severity.options),
       inArray(findings.category, FindingCategory.options),
       between(findings.confidence, 0, 1),
     ))
+    .where(eq(latestRuns.status, 'done'))
     .as('ranked_findings');
 
-  const rows = await db.select({
-    reviewId: ranked.reviewId,
+  const rows = await db.with(latestRuns).select({
+    prId: ranked.prId,
     counts: { critical: ranked.critical, warning: ranked.warning, suggestion: ranked.suggestion },
     preview: {
       id: findings.id,
@@ -47,14 +75,14 @@ export async function findingSummariesForReviews(db: Db, reviewIds: string[]) {
       rationale: sql<string>`left(${findings.rationale}, 280)`,
     },
   }).from(ranked)
-    .innerJoin(findings, eq(findings.id, ranked.id))
-    .where(lte(ranked.rank, 3))
-    .orderBy(ranked.reviewId, ranked.rank);
+    .leftJoin(findings, eq(findings.id, ranked.id))
+    .where(limit === 'all' ? undefined : lte(ranked.rank, limit))
+    .orderBy(ranked.prId, ranked.rank);
 
-  for (const { reviewId, counts, preview } of rows) {
-    const summary = summaries.get(reviewId) ?? { counts, preview: [] };
-    summary.preview.push(FindingPreview.parse(preview));
-    summaries.set(reviewId, summary);
+  for (const { prId, counts, preview } of rows) {
+    const summary = summaries.get(prId) ?? { counts, preview: [] };
+    if (preview?.id) summary.preview.push(FindingPreview.parse(preview));
+    summaries.set(prId, summary);
   }
   return summaries;
 }

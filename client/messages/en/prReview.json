@@ -40,7 +40,10 @@
     "trigger": "Preview findings · {breakdown}",
     "prTotal": "{count, plural, one {# finding} other {# findings}}",
     "runTotal": "{count, plural, one {# finding in this run} other {# findings in this run}}",
-    "empty": "No findings"
+    "empty": "No findings",
+    "loadingMore": "Loading more findings…",
+    "loadError": "Couldn’t load the remaining findings.",
+    "retry": "Retry"
   },
   "runReview": {
     "runAll": "Run all enabled agents",

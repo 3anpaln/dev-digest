@@ -37,18 +37,32 @@ it("renders totals in the cost column and preserves PR row navigation on refetch
     number: i + 1, title: `PR ${i + 1}`, author: "Alice", branch: "test", base: "main",
     head_sha: "abc", additions: 5, deletions: 0, files_count: 1, status: "needs_review", review_cost: run,
   }));
+  const prId = "b6b77346-a295-4f4e-a834-10b7fc266dc1";
+  rows[0]!.id = prId;
   rows[0]!.findings_summary = {
-    counts: { critical: 1, warning: 0, suggestion: 1 },
+    counts: { critical: 1, warning: 0, suggestion: 5 },
     preview: [
       { id: "f1", severity: "CRITICAL", category: "bug", title: "Missing validation", file: "src/input.ts",
         start_line: 6, end_line: 8, confidence: 0.9, rationale: "Validate the input before using it." },
       { id: "f2", severity: "SUGGESTION", category: "style", title: "Name the constant", file: "src/input.ts",
         start_line: 12, end_line: 12, confidence: 0.8, rationale: "A name explains the default value." },
+      { id: "f3", severity: "SUGGESTION", category: "style", title: "Extract the helper", file: "src/input.ts",
+        start_line: 15, end_line: 15, confidence: 0.8, rationale: "Reuse the parser." },
     ],
   };
   expect(PrListItem.array().parse(rows)).toEqual(rows);
   expect(PrListItem.safeParse({ ...rows[0], review_cost: { running: false } }).success).toBe(false);
-  const fetchList = vi.fn(async (_url: string) => Response.json(rows));
+  const fullFindings = [
+    ...rows[0]!.findings_summary.preview,
+    ...[4, 5, 6].map((number) => ({
+      ...rows[0]!.findings_summary!.preview[1]!, id: `f${number}`, title: `Finding ${number}`,
+    })),
+  ];
+  const fetchList = vi.fn(async (url: string) => {
+    if (url.endsWith(`/pulls/${prId}/findings`)) return Response.json(fullFindings);
+    expect(url).toMatch(/\/repos\/acme\/pulls$/);
+    return Response.json(rows);
+  });
   vi.stubGlobal("fetch", fetchList);
   const client = new QueryClient();
   render(
@@ -62,18 +76,40 @@ it("renders totals in the cost column and preserves PR row navigation on refetch
   const findingsHeader = screen.getByText("Findings");
   expect(findingsHeader.previousElementSibling).toHaveTextContent("Score");
   expect(findingsHeader.nextElementSibling).toHaveTextContent("Status");
-  const trigger = screen.getByRole("button", { name: "Preview findings · 1 critical and 1 suggestion" });
+  expect(fetchList).toHaveBeenCalledTimes(1);
+  const trigger = screen.getByRole("button", { name: "Preview findings · 1 critical and 5 suggestions" });
   expect(trigger.querySelectorAll("svg")).toHaveLength(2);
   fireEvent.mouseEnter(trigger);
-  expect(screen.getByRole("region", { name: "2 findings" })).toHaveTextContent("src/input.ts:6–8");
-  fireEvent.keyDown(trigger, { key: "Escape" });
-  expect(screen.queryByRole("region", { name: "2 findings" })).toBeNull();
+  const preview = screen.getByRole("region", { name: "6 findings" });
+  expect(preview).toHaveTextContent("src/input.ts:6–8");
+  expect(await screen.findByText("Finding 6")).toBeInTheDocument();
+  expect(preview).toHaveTextContent("Finding 4");
+  expect(fetchList).toHaveBeenCalledWith(expect.stringMatching(`/pulls/${prId}/findings$`), expect.anything());
+  vi.useFakeTimers();
+  try {
+    fireEvent.mouseLeave(trigger);
+    fireEvent.mouseEnter(preview);
+    act(() => vi.advanceTimersByTime(200));
+    fireEvent.scroll(preview);
+    expect(preview).toBeVisible();
+    fireEvent.mouseLeave(preview);
+    act(() => vi.advanceTimersByTime(200));
+    expect(preview).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+  act(() => trigger.focus());
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  expect(screen.getByRole("region", { name: "6 findings" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("region", { name: "6 findings" })).toBeNull();
+  expect(trigger).toHaveFocus();
   fireEvent.focus(trigger);
   fireEvent.click(trigger);
   expect(screen.getByText("Name the constant")).toBeVisible();
   expect(push).not.toHaveBeenCalled();
   fireEvent.pointerDown(document.body);
-  expect(screen.queryByRole("region", { name: "2 findings" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "6 findings" })).toBeNull();
   expect(screen.getAllByLabelText("No findings")).toHaveLength(rows.length - 1);
   const header = screen.getByText("Cost");
   expect(header.previousElementSibling).toHaveTextContent("Status");
@@ -95,8 +131,5 @@ it("renders totals in the cost column and preserves PR row navigation on refetch
   await act(() => client.refetchQueries({ queryKey: ["pulls", "acme"] }));
   expect(await screen.findByText("$0.022")).toBeVisible();
   expect(screen.queryByTitle("Review in progress")).toBeNull();
-  expect(fetchList).toHaveBeenCalledTimes(2);
-  for (const [url] of fetchList.mock.calls) {
-    expect(url).toMatch(/\/repos\/acme\/pulls$/);
-  }
+  expect(fetchList.mock.calls.filter(([url]) => url.endsWith("/repos/acme/pulls"))).toHaveLength(2);
 });
