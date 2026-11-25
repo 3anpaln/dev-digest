@@ -19,6 +19,8 @@ In Codex, use `/skills` to browse the project skills. The Next.js guide can be s
 | [typescript-expert](typescript-expert/SKILL.md) | Full-stack | Type-level programming, performance, tooling, migrations |
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
+| [documentation-and-adrs](documentation-and-adrs/SKILL.md) | Shared | Document important decisions and public APIs, and check for documentation drift |
+| [improve-codebase-architecture](improve-codebase-architecture/SKILL.md) | Shared | Compare refactoring candidates and discuss the selected design |
 
 ## What Are Skills?
 
