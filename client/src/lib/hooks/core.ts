@@ -6,6 +6,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import type { FindingPreview } from "@devdigest/shared";
 import type {
   Settings,
   SettingsUpdate,
@@ -116,6 +117,14 @@ export function usePullDetail(prId: string | number | null | undefined) {
     queryKey: ["pull", prId],
     queryFn: () => api.get<PrDetail>(`/pulls/${prId}`),
     enabled: prId != null,
+  });
+}
+
+export function usePrFindings(prId: string) {
+  return useQuery({
+    queryKey: ["pr-findings", prId],
+    queryFn: () => api.get<FindingPreview[]>(`/pulls/${prId}/findings`),
+    retry: false,
   });
 }
 

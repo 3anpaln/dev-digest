@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { PrListItem } from '@devdigest/shared';
+import { FindingPreview, PrListItem } from '@devdigest/shared';
 import { ReviewRepository } from '../src/modules/reviews/repository.js';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { waitForPrRuns } from './helpers/runs.js';
@@ -127,7 +127,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
   }
 
-  it('previews up to three findings for each PR while counting all findings in its latest review', async () => {
+  it('counts findings from each agent’s latest attempt and limits the preview per PR', async () => {
     const db = pg.handle.db;
     const app = await buildApp({ config: config(), db, overrides: {
       github: new MockGitHubClient({ pulls: [] }),
@@ -136,28 +136,61 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       await app.ready();
       const { repo, pr } = await setupRepoAndPr(db, workspaceId);
       const { id: _id, ...base } = pr;
-      const [second, empty] = await db.insert(t.pullRequests).values([
+      const [second, empty, unlinked] = await db.insert(t.pullRequests).values([
         { ...base, number: pr.number + 1 },
         { ...base, number: pr.number + 2 },
         { ...base, number: pr.number + 3 },
       ]).returning();
       const [foreign] = await db.insert(t.workspaces).values({ name: 'Foreign review workspace' }).returning();
-      const review = { workspaceId, prId: pr.id, kind: 'review' as const };
-      const [previous, latest, secondReview] = await db.insert(t.reviews).values([
-        { ...review, score: 70, createdAt: new Date('2026-01-01') },
-        { ...review, score: 55, createdAt: new Date('2026-01-02') },
-        { ...review, prId: second!.id },
-        { ...review, prId: empty!.id },
-        { ...review, score: 99, kind: 'summary', createdAt: new Date('2026-01-03') },
-        { ...review, score: 0, workspaceId: foreign!.id, createdAt: new Date('2026-01-04') },
+      const [agentA, agentB, agentC] = await db.select({ id: t.agents.id }).from(t.agents)
+        .where(eq(t.agents.workspaceId, workspaceId));
+      const run = { workspaceId, prId: pr.id, status: 'done', ranAt: new Date('2026-01-01') };
+      const rerun = { ...run, ranAt: new Date('2026-01-02') };
+      const [
+        previousA, latestA, latestB, previousC, , secondRun, previousSecond, , emptyRun, previousEmpty,
+      ] = await db.insert(t.agentRuns).values([
+        { ...run, agentId: agentA!.id },
+        { ...rerun, agentId: agentA!.id },
+        { ...run, agentId: agentB!.id },
+        { ...run, agentId: agentC!.id },
+        { ...rerun, agentId: agentC!.id, status: 'failed' },
+        { ...run, prId: second!.id, agentId: agentA!.id },
+        { ...run, prId: second!.id, agentId: agentB!.id },
+        { ...rerun, prId: second!.id, agentId: agentB!.id, status: 'running' },
+        { ...rerun, prId: empty!.id, agentId: agentA!.id },
+        { ...run, prId: empty!.id, agentId: agentA!.id },
+        { ...rerun, workspaceId: foreign!.id, agentId: agentA!.id, status: 'failed', ranAt: new Date('2026-01-03') },
+      ]).returning();
+      const reviewFor = (r: typeof t.agentRuns.$inferSelect) => ({
+        workspaceId, prId: r.prId!, agentId: r.agentId, runId: r.id, kind: 'review' as const,
+      });
+      const [
+        previous, latest, otherAgent, failedAgentOld, secondReview, runningAgentOld, , emptyAgentOld,
+        summary, foreignReview, unlinkedReview,
+      ] = await db.insert(t.reviews).values([
+        { ...reviewFor(previousA!), score: 70, createdAt: new Date('2026-01-02T00:02:00Z') },
+        { ...reviewFor(latestA!), score: 54, createdAt: new Date('2026-01-02T00:01:00Z') },
+        { ...reviewFor(latestB!), score: 55, createdAt: new Date('2026-01-02T00:03:00Z') },
+        { ...reviewFor(previousC!), createdAt: new Date('2026-01-01') },
+        reviewFor(secondRun!),
+        reviewFor(previousSecond!),
+        reviewFor(emptyRun!),
+        reviewFor(previousEmpty!),
+        { ...reviewFor(latestA!), score: 99, kind: 'summary', createdAt: new Date('2026-01-03') },
+        { ...reviewFor(latestA!), score: 0, workspaceId: foreign!.id, createdAt: new Date('2026-01-04') },
+        { workspaceId, prId: unlinked!.id, kind: 'review' },
       ]).returning();
       const finding = { file: 'src/input.ts', category: 'bug', confidence: 0.9, rationale: 'x'.repeat(400) };
       await db.insert(t.findings).values([
-        { ...finding, reviewId: previous!.id, title: 'Previous critical', severity: 'CRITICAL', startLine: 1, endLine: 1 },
+        ...[previous, failedAgentOld, runningAgentOld, emptyAgentOld, summary, foreignReview, unlinkedReview].map((r) => ({
+          ...finding, reviewId: r!.id, title: 'Excluded critical', severity: 'CRITICAL', startLine: 1, endLine: 1,
+        })),
         { ...finding, reviewId: latest!.id, title: 'Invalid severity', severity: 'INFO', startLine: 0, endLine: 0 },
         ...['SUGGESTION', 'CRITICAL', 'WARNING', 'CRITICAL', 'SUGGESTION'].map((severity, i) => ({
           ...finding, reviewId: latest!.id, title: `Finding ${i}`, severity, startLine: i + 1, endLine: i + 1,
         })),
+        { ...finding, reviewId: otherAgent!.id, title: 'Other agent critical', severity: 'CRITICAL', startLine: 1, endLine: 1 },
+        { ...finding, reviewId: otherAgent!.id, title: 'Other agent warning', severity: 'WARNING', startLine: 1, endLine: 1 },
         ...Array.from({ length: 100 }, (_, i) => ({
           ...finding, reviewId: secondReview!.id, title: `Suggestion ${i}`, severity: 'SUGGESTION', startLine: i + 1, endLine: i + 1,
         })),
@@ -167,8 +200,8 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       const rows = PrListItem.array().parse(response.json());
       const item = rows.find((row) => row.id === pr.id)!;
       expect(item.score).toBe(55);
-      expect(item.findings_summary?.counts).toEqual({ critical: 2, warning: 1, suggestion: 2 });
-      expect(item.findings_summary?.preview.map((entry) => entry.title)).toEqual(['Finding 1', 'Finding 3', 'Finding 2']);
+      expect(item.findings_summary?.counts).toEqual({ critical: 3, warning: 2, suggestion: 2 });
+      expect(item.findings_summary?.preview.map((entry) => entry.title)).toEqual(['Other agent critical', 'Finding 1', 'Finding 3']);
       expect(item.findings_summary?.preview[0]?.rationale).toHaveLength(280);
       const secondSummary = rows.find((row) => row.id === second!.id)?.findings_summary;
       expect(secondSummary?.counts).toEqual({ critical: 0, warning: 0, suggestion: 100 });
@@ -176,7 +209,18 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       expect(rows.find((row) => row.id === empty!.id)?.findings_summary).toEqual({
         counts: { critical: 0, warning: 0, suggestion: 0 }, preview: [],
       });
-      expect(rows.find((row) => row.number === pr.number + 3)?.findings_summary).toBeNull();
+      expect(rows.find((row) => row.id === unlinked!.id)?.findings_summary).toBeNull();
+
+      const fullResponse = await app.inject({ url: `/pulls/${pr.id}/findings` });
+      expect(fullResponse.statusCode).toBe(200);
+      const allFindings = FindingPreview.array().parse(fullResponse.json());
+      expect(allFindings.map((entry) => entry.title)).toEqual([
+        'Other agent critical', 'Finding 1', 'Finding 3', 'Other agent warning', 'Finding 2',
+        'Finding 0', 'Finding 4',
+      ]);
+      const emptyResponse = await app.inject({ url: `/pulls/${empty!.id}/findings` });
+      expect(emptyResponse.statusCode).toBe(200);
+      expect(emptyResponse.json()).toEqual([]);
     } finally {
       await app.close();
     }

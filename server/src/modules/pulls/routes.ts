@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { PrCommentInput, type PrListItem, type PrDetail, type GitHubClient, type PrReviewComment } from '@devdigest/shared';
-import { findingSummariesForReviews } from './finding-previews.js';
+import { PrCommentInput, type FindingPreview, type PrListItem, type PrDetail, type GitHubClient, type PrReviewComment } from '@devdigest/shared';
+import { findingSummariesForPulls } from './finding-previews.js';
 import { reviewCostsForPulls } from './latest-run.js';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
@@ -112,13 +112,12 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // The score and findings preview describe the same saved review.
     const prIds = rows.map((r) => r.id);
     const reviewCosts = await reviewCostsForPulls(container.db, workspaceId, prIds);
-    const latestReviewByPr = new Map<string, { id: string; score: number | null }>();
+    const latestScoreByPr = new Map<string, number | null>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ id: t.reviews.id, prId: t.reviews.prId, score: t.reviews.score })
+        .select({ prId: t.reviews.prId, score: t.reviews.score })
         .from(t.reviews)
         .where(and(
           inArray(t.reviews.prId, prIds),
@@ -128,16 +127,14 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         .orderBy(desc(t.reviews.createdAt), desc(t.reviews.id));
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
-        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, rv);
+        if (!latestScoreByPr.has(rv.prId)) latestScoreByPr.set(rv.prId, rv.score);
       }
     }
 
-    const latestReviewIds = Array.from(latestReviewByPr.values(), (review) => review.id);
-    const findingsByReview = await findingSummariesForReviews(container.db, latestReviewIds);
+    const findingsByPr = await findingSummariesForPulls(container.db, workspaceId, prIds);
 
     const now = Date.now();
     return rows.map((r) => {
-      const review = latestReviewByPr.get(r.id);
       return {
         id: r.id,
         number: r.number,
@@ -158,16 +155,24 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         }),
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
-        score: review ? review.score : null,
-        findings_summary: review
-          ? findingsByReview.get(review.id) ?? {
-            counts: { critical: 0, warning: 0, suggestion: 0 },
-            preview: [],
-          }
-          : null,
+        score: latestScoreByPr.get(r.id) ?? null,
+        findings_summary: findingsByPr.get(r.id) ?? null,
         review_cost: reviewCosts.get(r.id) ?? null,
       };
     });
+  });
+
+  app.get('/pulls/:id/findings', { schema: { params: IdParams } }, async (req): Promise<FindingPreview[]> => {
+    const { workspaceId } = await getContext(container, req);
+    const { id } = req.params;
+    const [pr] = await container.db
+      .select({ id: t.pullRequests.id })
+      .from(t.pullRequests)
+      .where(and(eq(t.pullRequests.id, id), eq(t.pullRequests.workspaceId, workspaceId)));
+    if (!pr) throw new NotFoundError('Pull request not found');
+
+    const summaries = await findingSummariesForPulls(container.db, workspaceId, [id], 'all');
+    return summaries.get(id)?.preview ?? [];
   });
 
   app.get('/pulls/:id', { schema: { params: IdParams } }, async (req): Promise<PrDetail> => {

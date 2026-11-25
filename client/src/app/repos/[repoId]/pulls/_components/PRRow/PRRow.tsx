@@ -85,7 +85,7 @@ export function PRRow({ pr, repoId }: { pr: PrListItem; repoId: string }) {
       </div>
       <div>
         {pr.findings_summary?.preview.length ? (
-          <FindingsPreview summary={pr.findings_summary} scope="pr" />
+          <FindingsPreview summary={pr.findings_summary} scope="pr" prId={pr.id ?? undefined} />
         ) : (
           <span style={s.muted} aria-label={t("findingsPreview.empty")}>—</span>
         )}
