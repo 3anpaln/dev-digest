@@ -190,6 +190,7 @@ export async function saveRunTrace(db: Db, runId: string, trace: RunTrace): Prom
     .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace } });
 }
 
+/** A trace inherits its workspace from its required run, even after its PR is deleted. */
 export async function getRunTrace(db: Db, workspaceId: string, runId: string): Promise<RunTrace | undefined> {
   const [row] = await db.select({ trace: t.runTraces.trace })
     .from(t.runTraces)

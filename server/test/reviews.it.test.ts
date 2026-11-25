@@ -297,6 +297,32 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     }
   });
 
+  it('keeps saved traces after PR deletion and removes them when the run is deleted', async () => {
+    const { db } = pg.handle;
+    const app = await appWith(REVIEW_FIXTURE);
+    try {
+      const { pr } = await setupRepoAndPr(db, workspaceId);
+      const [run] = await db.insert(t.agentRuns).values({ workspaceId, prId: pr.id, status: 'done' }).returning();
+      const runId = run!.id;
+      const saved = { runId, trace: { log: [] } };
+      await db.insert(t.runTraces).values(saved);
+      const url = `/runs/${runId}/trace`;
+      expect((await app.inject({ url })).statusCode).toBe(200);
+
+      await db.delete(t.pullRequests).where(eq(t.pullRequests.id, pr.id));
+      const response = await app.inject({ url });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject(saved.trace);
+
+      await db.delete(t.agentRuns).where(eq(t.agentRuns.id, runId));
+      expect(await db.select().from(t.runTraces).where(eq(t.runTraces.runId, runId))).toEqual([]);
+      expect((await app.inject({ url })).statusCode).toBe(404);
+      await expect(db.insert(t.runTraces).values(saved)).rejects.toMatchObject({ cause: { code: '23503' } });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('totals all review runs per scoped PR, including reruns and missing traces', async () => {
     const queries: string[] = [];
     const db = drizzle(pg.handle.sql, {
@@ -317,7 +343,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         queries.length = 0;
         const res = await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` });
         expect(res.statusCode).toBe(200);
-        expect(queries.filter((q) => q.includes('"agent_runs"'))).toHaveLength(1);
+        expect(queries.filter((q) => q.includes('"run_traces"'))).toHaveLength(1);
         return PrListItem.array().parse(res.json());
       };
       expect((await list()).map((item) => item.review_cost)).toEqual([null]);
