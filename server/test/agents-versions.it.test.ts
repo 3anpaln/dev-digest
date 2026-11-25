@@ -94,19 +94,30 @@ d('GET /agents/:id/versions', () => {
     await app.close();
   });
 
-  it('toggling enabled does NOT create a new version', async () => {
+  it('persists enabled toggles without creating a new version', async () => {
     const app = await makeApp();
-    const agentId = (
-      await app.inject({ method: 'POST', url: '/agents', payload: createBody })
-    ).json().id as string;
+    try {
+      const created = await app.inject({ method: 'POST', url: '/agents', payload: createBody });
+      expect(created.statusCode).toBe(201);
+      expect(created.json()).toMatchObject({ enabled: true, version: 1 });
+      const url = `/agents/${created.json().id}`;
 
-    await app.inject({ method: 'PUT', url: `/agents/${agentId}`, payload: { enabled: false } });
+      for (const enabled of [false, true]) {
+        const updated = await app.inject({ method: 'PUT', url, payload: { enabled } });
+        expect(updated.statusCode).toBe(200);
+        expect(updated.json()).toMatchObject({ enabled, version: 1 });
 
-    const versions = (
-      await app.inject({ method: 'GET', url: `/agents/${agentId}/versions` })
-    ).json();
-    expect(versions).toHaveLength(1);
-    await app.close();
+        const persisted = await app.inject({ url });
+        expect(persisted.statusCode).toBe(200);
+        expect(persisted.json()).toMatchObject({ enabled, version: 1 });
+      }
+
+      const versions = await app.inject({ url: `${url}/versions` });
+      expect(versions.statusCode).toBe(200);
+      expect(versions.json()).toMatchObject([{ version: 1 }]);
+    } finally {
+      await app.close();
+    }
   });
 
   it('serializes competing edits into distinct version snapshots', async () => {
