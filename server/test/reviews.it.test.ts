@@ -687,4 +687,29 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(body.runs.length).toBeGreaterThanOrEqual(2);
     await app.close();
   });
+
+  it('logs only a safe warning when PR detail fetching or validation fails', async () => {
+    const { db } = pg.handle;
+    const github = new MockGitHubClient({ detail: { additions: 1.5, body: 'Private upstream PR body' } });
+    vi.spyOn(github, 'getPullRequest').mockRejectedValueOnce(new Error('Private GitHub response'));
+    const app = await buildApp({ config: config(), db, overrides: { github } });
+    const warn = vi.spyOn(app.log, 'warn').mockImplementation(() => {});
+    try {
+      const { pr } = await setupRepoAndPr(db, workspaceId);
+      const url = `/pulls/${pr.id}`;
+
+      const fetchFallback = await app.inject({ url });
+      const validationFallback = await app.inject({ url });
+      for (const response of [fetchFallback, validationFallback]) {
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({ id: pr.id, body: pr.body });
+      }
+
+      const message = 'PR detail refresh failed. Reading the persisted snapshot.';
+      expect(warn.mock.calls).toEqual([[message], [message]]);
+    } finally {
+      warn.mockRestore();
+      await app.close();
+    }
+  });
 });

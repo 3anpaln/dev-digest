@@ -197,8 +197,8 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       if (await savePullSnapshot(container.db, workspaceId, pr.id, detail)) {
         return { ...detail, id: pr.id };
       }
-    } catch (err) {
-      app.log.warn({ err }, 'PR detail refresh failed; reading the persisted snapshot');
+    } catch {
+      app.log.warn('PR detail refresh failed. Reading the persisted snapshot.');
     }
 
     const snapshot = await readPullSnapshot(container.db, workspaceId, pr.id);
