@@ -8,7 +8,7 @@ In Codex, use `/skills` to browse the project skills. The Next.js guide can be s
 
 | Skill | Scope | Description |
 |-------|-------|-------------|
-| [record-task-insights](record-task-insights/SKILL.md) | All packages | Capture reusable lessons in the owning area's insights file at task completion |
+| [engineering-insights](engineering-insights/SKILL.md) | All packages | Record dated lessons with line-numbered source links in the owning area's insights file |
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
 | [postgresql-table-design](postgresql-table-design/SKILL.md) | Backend | Postgres schema design, data types, indexing, constraints |

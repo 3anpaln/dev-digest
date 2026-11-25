@@ -34,4 +34,4 @@ From the root, run `bash scripts/dev.sh` for the full stack. Use pnpm 10 for the
 
 ## Task completion
 
-After verification and before the final response for each task, follow the [record-task-insights skill](.claude/skills/record-task-insights/SKILL.md).
+After verification and before the final response for each task, follow the [engineering-insights skill](.claude/skills/engineering-insights/SKILL.md).
