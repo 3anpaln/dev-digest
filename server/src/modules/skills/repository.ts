@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, or, sql } from 'drizzle-orm';
-import type { EditableSkill, SkillLibraryItem, SkillStats, SkillVersion } from '@devdigest/shared';
+import type { EditableSkill, SkillImportSource, SkillLibraryItem, SkillStats, SkillVersion } from '@devdigest/shared';
 import type { Db } from '../../db/client.js';
 import { agents, agentRuns, agentSkills, findings, reviews, runTraces, skills, skillVersions, workspaces } from '../../db/schema.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
@@ -8,6 +8,12 @@ import { AppError, NotFoundError } from '../../platform/errors.js';
 type SkillRow = typeof skills.$inferSelect;
 type SkillInput = Pick<SkillRow, 'name' | 'description' | 'type' | 'body' | 'enabled'>;
 const LIBRARY_OWNER_ID = '7bf44079-ec76-41ea-b58a-5dbde0eb210e';
+const IMPORT_PREVIEW_MARKER = 'studio-skill-import:v1';
+
+export function isStudioSkill({ source, evidenceFiles }: Pick<SkillRow, 'source' | 'evidenceFiles'>): boolean {
+  return source === 'manual' || ((source === 'imported_file' || source === 'imported_url')
+    && evidenceFiles?.[1] === IMPORT_PREVIEW_MARKER);
+}
 
 async function ensureLibraryOwner(db: Pick<Db, 'insert'>): Promise<void> {
   await db.insert(workspaces).values({ id: LIBRARY_OWNER_ID, name: 'Shared Skills Library' })
@@ -25,7 +31,8 @@ function revisionOf({ id, name, description, type, body, enabled, version }: Ski
 
 function toSkill(row: SkillRow): EditableSkill {
   const { id, name, description, type, source, body, enabled, version } = row;
-  return { id, name, description, type, source, body, enabled, version, revision: revisionOf(row), evidence_files: row.evidenceFiles };
+  const evidence = row.evidenceFiles?.[1] === IMPORT_PREVIEW_MARKER ? row.evidenceFiles.slice(0, 1) : row.evidenceFiles;
+  return { id, name, description, type, source, body, enabled, version, revision: revisionOf(row), evidence_files: evidence };
 }
 
 export class SkillsRepository {
@@ -50,10 +57,15 @@ export class SkillsRepository {
     }));
   }
 
-  async create(input: SkillInput): Promise<EditableSkill> {
+  async create(input: SkillInput, origin?: { source: SkillImportSource; reference: string }): Promise<EditableSkill> {
     return this.db.transaction(async (tx) => {
       await ensureLibraryOwner(tx);
-      const [row] = await tx.insert(skills).values({ ...input, workspaceId: LIBRARY_OWNER_ID, source: 'manual' }).returning();
+      const [row] = await tx.insert(skills).values({
+        ...input,
+        workspaceId: LIBRARY_OWNER_ID,
+        source: origin?.source ?? 'manual',
+        ...(origin ? { enabled: false, evidenceFiles: [origin.reference, IMPORT_PREVIEW_MARKER] } : {}),
+      }).returning();
       await tx.insert(skillVersions).values({ skillId: row!.id, version: 1, body: row!.body });
       return toSkill(row!);
     });

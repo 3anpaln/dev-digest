@@ -79,6 +79,42 @@ button.cardDescription { position: relative; z-index: 1; cursor: help; }
 .hint { margin-block: 8px 16px; }
 .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 72rem; }
 .form label { display: grid; gap: 6px; }
+.addDialog {
+  width: min(40rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: clamp(16px, 3vw, 28px);
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  color-scheme: inherit;
+}
+.addDialog::backdrop { background: rgb(0 0 0 / 64%); }
+.importModes {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-block: 10px 18px;
+  padding-bottom: 8px;
+}
+.importModes > button { padding: 6px 10px; border-radius: 6px; color: var(--text-secondary); }
+.importModes > button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.importModes > button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent-text); }
+.addDialog textarea {
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  font-family: var(--font-mono, monospace);
+}
+.importSource { color: var(--text-secondary); overflow-wrap: anywhere; margin-block-end: 8px; }
+.importSource b { color: var(--text-primary); font-weight: 500; }
 .enabled { display: flex; align-items: center; gap: 8px; }
 .form input:not([type="checkbox"]), .form select, .library > input, .editor {
   border: 1px solid var(--border);

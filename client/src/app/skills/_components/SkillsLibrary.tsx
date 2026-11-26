@@ -8,6 +8,7 @@ import { AppShell } from "../../../components/app-shell";
 import { SKILL_TYPES, SkillTypeBadge } from "../../../components/SkillTypeBadge";
 import { ApiError } from "../../../lib/api";
 import { useSaveSkill, useSkillCardAction, useSkills, type SkillFields } from "../../../lib/hooks/skills";
+import { AddSkillDialog } from "./AddSkillDialog";
 import { SkillHistory } from "./SkillHistory";
 import { SkillCardDescription } from "./SkillCardDescription";
 import { SkillStats } from "./SkillStats";
@@ -23,6 +24,14 @@ const tabs = [
 const initial: SkillFields = { name: "", description: "", type: "custom", body: "", enabled: true };
 const crumb = [{ label: "Skills Lab" }, { label: "Skills" }];
 
+function importSource(skill: EditableSkill) {
+  if (skill.source === "imported_file" || skill.source === "imported_url") return skill.evidence_files?.[0];
+}
+
+function enableWarning(skill: EditableSkill, enabled: boolean) {
+  return enabled && importSource(skill) ? " Review the imported instructions in Preview before enabling." : "";
+}
+
 export function SkillsLibrary() {
   const library = useSkills();
   const router = useRouter();
@@ -30,6 +39,7 @@ export function SkillsLibrary() {
   const save = useSaveSkill();
   const cardAction = useSkillCardAction();
   const [filter, setFilter] = useState("");
+  const [adding, setAdding] = useState(false);
   const [pendingDraft, setDraft] = useState<{ key: string; fields: Partial<SkillFields>; base?: EditableSkill } | null>(null);
   const key = params.get("skill");
   const isNew = key === "new";
@@ -66,7 +76,7 @@ export function SkillsLibrary() {
   function changeCard(item: EditableSkill, enabled?: boolean) {
     const confirmed = enabled === undefined
       ? window.confirm(`Permanently delete "${item.name}"? This removes its saved versions and agent assignments. Existing runs keep their recorded skills.`)
-      : window.confirm(`${enabled ? "Enable" : "Disable"} "${item.name}" for future runs? Shared skills affect all workspaces.`);
+      : window.confirm(`${enabled ? "Enable" : "Disable"} "${item.name}" for future runs? Shared skills affect all workspaces.${enableWarning(item, enabled)}`);
     if (!confirmed) return;
     cardAction.mutate({ skill: item, enabled }, {
       onSuccess: (updated) => {
@@ -82,7 +92,7 @@ export function SkillsLibrary() {
     const { name, description, type, body, enabled } = fields;
     if (!name.trim() || !body.trim() || (current && !hasDraft)) return;
     if (current && current.enabled !== enabled
-      && !window.confirm("This changes whether the skill is used on future runs in all workspaces. Continue?")) return;
+      && !window.confirm(`This changes whether the skill is used on future runs in all workspaces. Continue?${enableWarning(current, enabled)}`)) return;
     save.mutate({ fields: { name, description, type, body, enabled }, current }, { onSuccess: (saved) => {
       setDraft(null);
       go(saved.id);
@@ -98,7 +108,12 @@ export function SkillsLibrary() {
         <aside className={styles.library} aria-label="Skills library">
           <div className={styles.heading}>
             <h1>Skills</h1>
-            <Button kind="primary" size="sm" icon="Plus" onClick={() => select("new")}>Add skill</Button>
+            <Button kind="primary" size="sm" icon="Plus" disabled={save.isPending || cardAction.isPending} onClick={() => {
+              if (hasDraft && !window.confirm("Discard your unsaved skill changes?")) return;
+              setDraft(null);
+              save.reset();
+              setAdding(true);
+            }}>Add skill</Button>
           </div>
           <input type="search" aria-label="Search skills" placeholder="Search skills…" value={filter}
             onChange={(event) => setFilter(event.target.value)} />
@@ -207,6 +222,7 @@ export function SkillsLibrary() {
               {tab === "preview" && skill && <section>
                 <h3>Preview <small>v{skill.version}</small></h3>
                 <p className={styles.hint}>Saved instructions used in review prompts.</p>
+                {importSource(skill) && <p className={styles.importSource}>Source <b>{importSource(skill)}</b></p>}
                 <div className={styles.markdown}>
                   <Markdown skipHtml>{skill.body}</Markdown>
                 </div>
@@ -222,6 +238,10 @@ export function SkillsLibrary() {
           )}
         </main>
       </div>
+      {adding && <AddSkillDialog onClose={() => setAdding(false)} onSaved={(saved) => {
+        setAdding(false);
+        go(saved.id);
+      }} />}
     </AppShell>
   );
 }

@@ -19,6 +19,8 @@ Add **Skills** to the Skills Lab navigation. Open the library at `/skills`. Use 
 
 Each card has an **Enabled** toggle and a **Delete** button independent of card selection. Confirm card actions before applying them. Deleting removes the skill, its saved versions, and its agent assignments. Existing runs keep the skills recorded in their traces. Running the seed can recreate a deleted built-in preset.
 
+If a card action fails, keep the last saved state visible and explain the failure. If the running API lacks the delete endpoint, tell the user to restart the API before retrying.
+
 Use a consistent card height. Show a labeled, color-coded type badge, the current version, and an agent icon with the number of assignments in the selected workspace. Truncate long descriptions on the card and show the full description in a popover on hover or keyboard focus.
 
 Use zero only when the assignment count is known. If the Skills list omits counts, read the current workspace's agent assignments. If both sources are unavailable, show the count as unavailable.
@@ -27,7 +29,25 @@ Keep the selected skill's name, type, and current version above the tabs. In Con
 
 Size the Config editor to the available pane and viewport height. Soft-wrap long Markdown lines, including unbroken text, while preserving the source. Keep each line number beside the start of its source line and scroll the editor vertically when the body exceeds its height.
 
-**Add skill** opens Config for a new manual skill. All workspaces use the same library, skill IDs, current versions, and enabled states. For the first release, use existing authenticated Studio access for shared library actions. Workspace members with permission to configure an agent can assign an available skill to that agent.
+**Add skill** currently opens Config for a new manual skill. All workspaces use the same library, skill IDs, current versions, and enabled states. For the first release, use existing authenticated Studio access for shared library actions. Workspace members with permission to configure an agent can assign an available skill to that agent.
+
+### Add skill dialog (planned)
+
+Use the supplied three-tab dialog. Keep the currently selected skill visible behind it and ask before discarding a draft. On success, close the dialog and open the new skill. A failed load or save keeps the draft available for correction and retry.
+
+| Tab | Behavior |
+| --- | --- |
+| **Create** | Enter a name, optional description, type, and Markdown body. Reuse the existing manual creation validation. |
+| **From file** | Upload one UTF-8 Markdown file or a skill archive. ZIP is the proposed initial archive format. Extract the skill core into an editable draft and suggest a name from supported front matter, the first heading, or the filename. Show the extracted Markdown in Preview before offering **Confirm import**. |
+| **Import from URL** | Enter a supported public HTTPS Markdown URL. **Load preview** asks the server to fetch the Markdown once and display it in the same editable preview used for file imports. Treat URL content as untrusted input and require a successful preview before allowing **Confirm import**. On confirmation, save the previewed draft with source `imported_url`. Proposed initial scope is public GitHub Markdown file links and their raw URLs. URL support beyond GitHub is an open decision. |
+
+On both import tabs, show the source, editable fields, and a safe Markdown preview before saving. Apply the current body validation. Save a new skill and version 1 only after the user confirms the import. Save imports disabled and make them available for assignment after a user reviews and explicitly enables them. Explain that enabling an imported skill allows its saved instructions to guide future reviews. Preserve provenance and keep the Markdown snapshot independent of future changes at the source.
+
+For an archive, the skill core is one unambiguous `SKILL.md` at the root or inside a single top-level folder. Extract only that entry's UTF-8 Markdown and recognized metadata. Ignore all other entries, including executable components, scripts, and binaries. They are neither opened for processing nor saved. Read the core without unpacking the archive to disk. Reject archives with missing or ambiguous skill cores, invalid entries, or exceeded size and entry limits. Nested archives are outside the import flow.
+
+Validate the URL and every redirect on the server, keep fetches on approved public destinations, and limit response size and fetch time. Use unauthenticated requests. Treat fetched content as text and reuse the safe Preview renderer. Changing the URL invalidates the previous preview and requires loading the new URL before confirmation. Confirmation saves the reviewed snapshot without fetching the URL again.
+
+Verify that a Markdown file, an archive containing a skill core and executable entries, and a supported URL each load an editable preview. Preview creates zero records. Confirmation creates one disabled skill at version 1, using only the previewed core. For a URL import, also verify that confirmation requires a successful preview for the current URL and that the saved source is `imported_url`. Verify that cancellation, invalid inputs, ambiguous archives, and failed fetches leave the library unchanged. Confirm that the Create tab still supports manual creation.
 
 | Tab | Required behavior |
 | --- | --- |
@@ -95,7 +115,7 @@ Use **Runs with skill** as the usage label. Assigned and enabled skills are appl
 
 ## Scope decisions and proposed improvements
 
-- **Global library and manual authoring.** A skill is a Markdown instruction body. The community search drawer in the new mockups is a future design reference, along with URL imports and automatic extraction. File bundles, scripts, and tool permissions are also deferred.
+- **Global skill library.** A skill is a Markdown instruction body. Manual authoring is available today. The planned Add skill dialog covers Markdown files, skill cores extracted from archives, and Markdown URL imports. Community search, automatic extraction from repositories, and importing supporting files, scripts, or tool permissions are deferred.
 - **Studio reviews.** CI distribution, executable evals, and automatic skill selection are deferred. The **Evals** tab is a placeholder.
 - **Global library permissions.** Add a dedicated permission for creating, editing, disabling, and restoring global skills in a later release. Keep management of an agent's assignments under that workspace's permissions.
 - **Cross-workspace Stats.** Defer shared aggregates and the permission to view them. The initial Stats tab uses the selected workspace.

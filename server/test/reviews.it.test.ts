@@ -127,6 +127,36 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
   }
 
+  it('requires a URL preview before saving exactly one disabled skill and its initial version', async () => {
+    const fetchMarkdown = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('# Imported contract checks'));
+    const app = await buildApp({ config: config(), db: pg.handle.db });
+    const fields = { name: 'Imported contract checks', description: '', body: '# Imported contract checks', type: 'custom' };
+    const confirm = (token: string) => app.inject({ method: 'POST', url: '/skills/import', payload: { token, fields } });
+    try {
+      expect((await confirm(crypto.randomUUID())).statusCode).toBe(422);
+      const preview = await app.inject({ method: 'POST', url: '/skills/import/preview', payload: {
+        kind: 'url', url: 'https://github.com/demo/skills/blob/main/SKILL.md',
+      } });
+      expect(preview.statusCode).toBe(200);
+      const draft = preview.json();
+      expect(draft).toMatchObject({ source: 'imported_url', draft: fields });
+      expect((await app.inject({ url: '/skills' })).json()).not.toContainEqual(expect.objectContaining({ name: fields.name }));
+      const saved = await confirm(draft.token);
+      expect(saved.statusCode).toBe(201);
+      const skill = saved.json();
+      expect(skill).toMatchObject({ ...fields, source: 'imported_url', enabled: false, version: 1,
+        evidence_files: ['https://raw.githubusercontent.com/demo/skills/main/SKILL.md'] });
+      expect((await app.inject({ url: `/skills/${skill.id}/versions` })).json()).toEqual([
+        expect.objectContaining({ version: 1, body: fields.body }),
+      ]);
+      expect((await confirm(draft.token)).statusCode).toBe(422);
+      expect(fetchMarkdown).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMarkdown.mockRestore();
+      await app.close();
+    }
+  });
+
   it('shares new skills across workspaces and versions body edits atomically', async () => {
     const db = pg.handle.db;
     const [other] = await db.insert(t.workspaces).values({ name: 'Second skill workspace' }).returning();
