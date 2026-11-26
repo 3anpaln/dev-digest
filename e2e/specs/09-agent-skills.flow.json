@@ -1,0 +1,54 @@
+{
+  "name": "Create, preview, and reorder review skills",
+  "steps": [
+    { "cmd": ["open", "{BASE}/skills"], "label": "Open the Skills library" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Add skill"], "label": "Start the first skill" },
+    { "cmd": ["wait", "--text", "New skill"], "label": "Wait for the editor" },
+    { "cmd": ["fill", "input[required]", "Flow rubric A"], "label": "Name the first skill" },
+    { "cmd": ["fill", "#skill-body", "# Review scope\nCompare the old and new route contracts and identify callers affected by breaking changes. Check the path, method, required parameters, request bodies, status codes, and response shape. Cite the changed contract and identify the affected caller when available.\nReport concrete regressions."], "label": "Write Markdown guidance with a long source line" },
+    {
+      "cmd": ["eval", "(() => { const editor = document.querySelector('#skill-body'); const [heading, paragraph, nextLine] = editor.previousElementSibling.children; return editor.scrollWidth <= editor.clientWidth + 1 && paragraph.offsetHeight > heading.offsetHeight && nextLine.firstElementChild.textContent === '3' && nextLine.getBoundingClientRect().top >= paragraph.getBoundingClientRect().bottom; })()"],
+      "label": "Verify the paragraph wraps and the next source line keeps its number",
+      "assert": { "stdoutIncludes": "true" }
+    },
+    { "cmd": ["find", "role", "button", "click", "--name", "Create skill"], "label": "Save the first skill" },
+    { "cmd": ["wait", "--fn", "document.querySelector('main h2')?.textContent === 'Flow rubric A'"], "label": "Wait for the saved skill detail" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Preview"], "label": "Open the saved Markdown preview" },
+    { "cmd": ["wait", "--text", "Review scope"], "label": "Verify the preview renders the saved heading" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Add skill"], "label": "Start the second skill" },
+    { "cmd": ["wait", "--text", "New skill"], "label": "Wait for the second editor" },
+    { "cmd": ["fill", "input[required]", "Flow rubric B"], "label": "Name the second skill" },
+    { "cmd": ["fill", "#skill-body", "# Review tests"], "label": "Write the second skill" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Create skill"], "label": "Save the second skill" },
+    { "cmd": ["wait", "--fn", "document.querySelector('main h2')?.textContent === 'Flow rubric B'"], "label": "Wait for the second skill to be saved" },
+    { "cmd": ["open", "{BASE}/agents"], "label": "Open the seeded Agents page" },
+    { "cmd": ["wait", "--fn", "Array.from(document.querySelectorAll('main span')).some(node => node.textContent === 'Security Reviewer')"], "label": "Wait for the seeded reviewer card" },
+    { "cmd": ["find", "text", "Security Reviewer", "click"], "label": "Choose a seeded reviewer" },
+    { "cmd": ["wait", "--text", "Configuration"], "label": "Wait for the agent editor" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Skills"], "label": "Open the agent's Skills tab" },
+    { "cmd": ["wait", "--text", "Flow rubric A"], "label": "Wait for the global skills to load" },
+    { "cmd": ["find", "role", "checkbox", "click", "--name", "Flow rubric A"], "label": "Assign the first skill" },
+    { "cmd": ["find", "role", "checkbox", "click", "--name", "Flow rubric B"], "label": "Assign the second skill" },
+    { "cmd": ["drag", "li[data-selected=true][data-position='1'] [data-drag-handle]", "li[data-selected=true][data-position='0']"], "label": "Drag the second skill above the first with the browser pointer" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Save changes"], "label": "Save the dragged order" },
+    { "cmd": ["wait", "--text", "Skill order saved."], "label": "Wait for the order to persist" },
+    { "cmd": ["reload"], "label": "Reload the agent editor" },
+    { "cmd": ["wait", "--text", "Flow rubric A"], "label": "Wait for saved assignments" },
+    {
+      "cmd": ["eval", "Array.from(document.querySelector('#agent-skills-heading').closest('section').querySelectorAll('li[data-selected=true] label')).map(label => label.innerText).filter(label => label.startsWith('Flow rubric')).join(',')"],
+      "label": "Confirm that the dragged order survived reload",
+      "assert": { "stdoutIncludes": "Flow rubric B,Flow rubric A" }
+    },
+    { "cmd": ["focus", "button[aria-label='Move Flow rubric A up']"], "label": "Focus the keyboard reorder action" },
+    { "cmd": ["press", "Enter"], "label": "Move the first skill back with the keyboard" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Save changes"], "label": "Save the keyboard order" },
+    { "cmd": ["wait", "--text", "Skill order saved."], "label": "Wait for the keyboard order to persist" },
+    { "cmd": ["reload"], "label": "Reload the keyboard order" },
+    { "cmd": ["wait", "--text", "Flow rubric A"], "label": "Wait for the reordered assignments" },
+    {
+      "cmd": ["eval", "Array.from(document.querySelector('#agent-skills-heading').closest('section').querySelectorAll('li[data-selected=true] label')).map(label => label.innerText).filter(label => label.startsWith('Flow rubric')).join(',')"],
+      "label": "Confirm keyboard reordering survived reload",
+      "assert": { "stdoutIncludes": "Flow rubric A,Flow rubric B" }
+    }
+  ]
+}

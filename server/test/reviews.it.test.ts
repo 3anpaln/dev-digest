@@ -127,6 +127,156 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
   }
 
+  it('shares new skills across workspaces and versions body edits atomically', async () => {
+    const db = pg.handle.db;
+    const [other] = await db.insert(t.workspaces).values({ name: 'Second skill workspace' }).returning();
+    const [user] = await db.select().from(t.users).limit(1);
+    const app = await buildApp({
+      config: config(),
+      db,
+      overrides: {
+        auth: {
+          async currentUser() { return user!; },
+          async currentWorkspace(request) {
+            const { headers } = request as { headers: Record<string, string> };
+            return headers['x-test-workspace'] ? other! : { id: workspaceId, name: 'Default' };
+          },
+        },
+      },
+    });
+    const foreign = { 'x-test-workspace': 'other' };
+    try {
+      const [privateSkill] = await db.insert(t.skills).values({
+        workspaceId, name: 'Existing private skill', body: 'Private project guidance', description: '',
+        type: 'custom', source: 'manual',
+      }).returning();
+      expect((await app.inject({ url: '/skills' })).json()).toContainEqual(expect.objectContaining({ id: privateSkill!.id }));
+      expect((await app.inject({ url: '/skills', headers: foreign })).json()).not.toContainEqual(expect.objectContaining({ id: privateSkill!.id }));
+      expect((await app.inject({ url: `/skills/${privateSkill!.id}/versions`, headers: foreign })).statusCode).toBe(404);
+      const response = await app.inject({ method: 'POST', url: '/skills', payload: {
+        name: 'Workspace-wide rubric', body: '# Original\n  nested', description: '', type: 'rubric', enabled: true,
+      } });
+      expect(response.statusCode).toBe(201);
+      const skill = response.json();
+      const url = `/skills/${skill.id}`;
+      expect((await app.inject({ url: '/skills', headers: foreign })).json()).toContainEqual(skill);
+
+      const patch = (revision: string, fields: object) => app.inject({
+        method: 'PUT', url, headers: foreign, payload: { revision, ...fields },
+      });
+      const metadataEdit = (await patch(skill.revision, { description: 'New description' })).json();
+      expect(metadataEdit).toMatchObject({ version: 1, description: 'New description' });
+      expect(metadataEdit.revision).not.toBe(skill.revision);
+      const bodyEdit = (await patch(metadataEdit.revision, { body: '# Updated' })).json();
+      expect(bodyEdit).toMatchObject({ version: 2, body: '# Updated' });
+      expect((await patch(metadataEdit.revision, { name: 'Stale name' })).statusCode).toBe(409);
+      expect((await app.inject({ method: 'POST', url: `${url}/restore`, payload: { version: 1, revision: bodyEdit.revision } })).json())
+        .toMatchObject({ name: skill.name, description: 'New description', version: 3, body: skill.body });
+      expect((await app.inject({ url: `${url}/versions` })).json().map((version: { body: string }) => version.body))
+        .toEqual([skill.body, '# Updated', skill.body]);
+
+      const { id: agentId } = (await app.inject({ method: 'POST', url: '/agents', payload: {
+        name: 'Assignment reviewer', provider: 'openai', model: 'test', system_prompt: 'Review',
+      } })).json();
+      const assignments = `/agents/${agentId}/skills`;
+      expect((await app.inject({ method: 'POST', url: assignments, payload: { skill_ids: [skill.id] } })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'POST', url: assignments, payload: { skill_ids: [crypto.randomUUID()] } })).statusCode).toBe(422);
+      expect((await app.inject({ url: assignments })).json()).toMatchObject([{ skill_id: skill.id, order: 0 }]);
+      expect((await app.inject({ url: assignments, headers: foreign })).statusCode).toBe(404);
+      expect((await app.inject({ url: `${url}/stats`, headers: foreign })).json()).toMatchObject({ agents: [], runs: 0 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps a queued skill snapshot, applies new versions on later runs, and scopes skill stats', async () => {
+    const db = pg.handle.db;
+    const { pr } = await setupRepoAndPr(db, workspaceId);
+    const [other] = await db.insert(t.workspaces).values({ name: 'Other skill workspace' }).returning();
+    class MapProvider extends MockLLMProvider {
+      override async completeStructured<T>(request: StructuredRequest<T>) {
+        const result = await super.completeStructured(request);
+        return request.messages.some(({ content }) => content.includes('+++ b/src/second.ts'))
+          ? { ...result, data: request.schema.parse({ ...REVIEW_FIXTURE, findings: [] }) }
+          : result;
+      }
+    }
+    const llm = new MapProvider('openai', { structured: REVIEW_FIXTURE });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    class DelayedGit extends MockGitClient {
+      override async diff(...args: Parameters<MockGitClient['diff']>) {
+        await gate;
+        return super.diff(...args);
+      }
+    }
+    const app = await buildApp({
+      config: config(),
+      db,
+      overrides: { git: new DelayedGit({ diff: DIFF + '\n' + DIFF.replaceAll('config.ts', 'second.ts') }), llm: { openai: llm } },
+    });
+    try {
+      const create = async (name: string, body: string) => {
+        const response = await app.inject({ method: 'POST', url: '/skills',
+          payload: { name, body, description: '', type: 'custom', enabled: true } });
+        expect(response.statusCode).toBe(201);
+        return response.json();
+      };
+      const a = await create('First skill', 'First original rule');
+      const b = await create('Second skill', 'Second original rule');
+      const { id: agentId } = (await app.inject({ method: 'POST', url: '/agents', payload: {
+        name: 'Skill reviewer', provider: 'openai', model: 'test', system_prompt: 'Review', strategy: 'map-reduce',
+      } })).json();
+      const assignments = `/agents/${agentId}/skills`;
+      expect((await app.inject({ method: 'POST', url: assignments, payload: { skill_ids: [b.id, a.id] } })).statusCode).toBe(200);
+      const run = async () => {
+        const response = await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId } });
+        expect(response.statusCode).toBe(200);
+        return response.json().runs[0].run_id as string;
+      };
+      const first = await run();
+      for (const [skill, patch] of [[a, { body: 'First updated rule' }], [b, { enabled: false }]] as const) {
+        expect((await app.inject({ method: 'PUT', url: `/skills/${skill.id}`, payload: { revision: skill.revision, ...patch } })).statusCode).toBe(200);
+      }
+      release();
+      expect((await waitForPrRuns(db, pr.id, { expected: 1 }))[0]?.status).toBe('done');
+      const second = await run();
+      expect((await waitForPrRuns(db, pr.id, { expected: 2 })).map((row) => row.status)).toEqual(['done', 'done']);
+
+      const prompts = llm.calls.filter((call) => call.method === 'completeStructured')
+        .map((call) => (call.req as StructuredRequest<Review>).messages.map((message) => message.content).join('\n'));
+      expect(prompts).toHaveLength(4);
+      for (const prompt of prompts.slice(0, 2)) expect(prompt).toContain('Second original rule\n\nFirst original rule');
+      for (const prompt of prompts.slice(2)) {
+        expect(prompt).toContain('First updated rule');
+        expect(prompt).not.toContain('Second original rule');
+      }
+      expect((await app.inject({ url: `/runs/${first}/trace` })).json().skills_used)
+        .toEqual([{ id: b.id, name: b.name, version: 1 }, { id: a.id, name: a.name, version: 1 }]);
+      expect((await app.inject({ url: `/runs/${second}/trace` })).json().skills_used)
+        .toEqual([{ id: a.id, name: a.name, version: 2 }]);
+
+      const ownReviews = await db.select().from(t.reviews).where(inArray(t.reviews.runId, [first, second]));
+      const findingRows = await db.select().from(t.findings).where(inArray(t.findings.reviewId, ownReviews.map((row) => row.id)));
+      expect(findingRows).toHaveLength(2);
+      await db.update(t.findings).set({ acceptedAt: new Date() }).where(eq(t.findings.id, findingRows[0]!.id));
+      await db.update(t.findings).set({ dismissedAt: new Date() }).where(eq(t.findings.id, findingRows[1]!.id));
+      const [foreignRun] = await db.insert(t.agentRuns).values({ workspaceId: other!.id, status: 'done' }).returning();
+      await db.insert(t.runTraces).values({ runId: foreignRun!.id, trace: {
+        first_dispatch_at: new Date().toISOString(),
+        skill_snapshot: [{ id: a.id, name: a.name, version: 2 }],
+      } });
+      const stats = (await app.inject({ url: `/skills/${a.id}/stats` })).json();
+      expect(stats).toMatchObject({
+        runs: 2, findings: 2, accepted: 1, dismissed: 1, categories: [{ name: 'security', count: 2 }],
+      });
+      expect((await app.inject({ url: `/skills/${b.id}/stats` })).json()).toMatchObject({ runs: 1, findings: 1 });
+    } finally {
+      release();
+      await app.close();
+    }
+  });
+
   it('counts findings from each agent’s latest attempt and limits the preview per PR', async () => {
     const db = pg.handle.db;
     const app = await buildApp({ config: config(), db, overrides: {

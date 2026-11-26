@@ -55,6 +55,8 @@ export interface CompletionResult {
 export interface StructuredRequest<T> {
   /** Throws when a new provider attempt should be skipped. */
   checkCancelled?: () => void;
+  /** Called immediately before a provider attempt is dispatched. */
+  onAttemptDispatch?: () => void;
   /** Normalized USD for each dispatched model attempt, including retries. */
   onAttemptCost?: (costUsd: number | null) => void;
   model: string;

@@ -80,6 +80,18 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
 
       <FindingsSection findings={findings} />
 
+      {trace.skills_used && trace.skills_used.length > 0 && (
+        <TraceSection icon="FileText" title={t("trace.skillsUsed")}>
+          <ol aria-label={t("trace.skillsUsed")} style={{ listStyle: "decimal", paddingInlineStart: 24 }}>
+            {trace.skills_used.map((skill) => (
+              <li key={skill.id}>
+                {skill.name} <Badge color="var(--text-secondary)" mono>v{skill.version}</Badge>
+              </li>
+            ))}
+          </ol>
+        </TraceSection>
+      )}
+
       <TraceSection icon="FileText" title={t("trace.promptAssembly")} defaultOpen={false}>
         <PromptBlock label={t("trace.prompt.system")} text={trace.prompt_assembly.system} color={PROMPT_COLORS.system} />
         {trace.prompt_assembly.skills != null && (

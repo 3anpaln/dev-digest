@@ -18,6 +18,7 @@
   },
   "trace": {
     "configuration": "Configuration",
+    "skillsUsed": "Skills used",
     "stats": "Stats",
     "promptAssembly": "Prompt assembly",
     "toolCalls": "Tool calls",

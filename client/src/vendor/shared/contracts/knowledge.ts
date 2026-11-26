@@ -131,6 +131,26 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+export const EditableSkill = Skill.extend({ revision: z.string().regex(/^[a-f0-9]{64}$/) });
+export type EditableSkill = z.infer<typeof EditableSkill>;
+
+export const SkillVersion = z.object({
+  version: z.number().int().positive(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+export const SkillStats = z.object({
+  agents: z.array(z.object({ id: z.string(), name: z.string(), enabled: z.boolean() })),
+  runs: z.number().int().nonnegative(),
+  findings: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  dismissed: z.number().int().nonnegative(),
+  categories: z.array(z.object({ name: z.string(), count: z.number().int().nonnegative() })),
+});
+export type SkillStats = z.infer<typeof SkillStats>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),

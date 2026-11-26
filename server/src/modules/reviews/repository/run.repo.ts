@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { RunSummary, RunTrace } from '@devdigest/shared';
+import type { RunSkill, RunSummary, RunTrace } from '@devdigest/shared';
 import { loggedCost } from '../../pulls/latest-run.js';
 
 // ---- in-flight / history --------------------------------------------------
@@ -124,21 +124,18 @@ export async function createAgentRun(
     prId: string;
     provider: string | null;
     model: string | null;
+    skillSnapshot?: RunSkill[];
   },
 ): Promise<string> {
-  const [row] = await db
-    .insert(t.agentRuns)
-    .values({
-      workspaceId: values.workspaceId,
-      agentId: values.agentId,
-      prId: values.prId,
-      provider: values.provider,
-      model: values.model,
-      status: 'running',
-      source: 'local',
-    })
-    .returning({ id: t.agentRuns.id });
-  return row!.id;
+  return db.transaction(async (tx) => {
+    const { skillSnapshot, ...run } = values;
+    const [row] = await tx.insert(t.agentRuns).values({ ...run, status: 'running', source: 'local' })
+      .returning({ id: t.agentRuns.id });
+    if (skillSnapshot?.length) {
+      await tx.insert(t.runTraces).values({ runId: row!.id, trace: { pending: true, skill_snapshot: skillSnapshot } });
+    }
+    return row!.id;
+  });
 }
 
 export async function completeAgentRun(
@@ -183,22 +180,33 @@ export async function completeAgentRun(
 }
 
 /** Persist the WHOLE run log as ONE document. PK = runId → agent_runs. */
-export async function saveRunTrace(db: Db, runId: string, trace: RunTrace): Promise<void> {
+export async function saveRunTrace(db: Db, runId: string, trace: RunTrace, firstDispatchAt?: string): Promise<void> {
+  const doc = firstDispatchAt ? { ...trace, first_dispatch_at: firstDispatchAt } : trace;
   await db
     .insert(t.runTraces)
-    .values({ runId, trace })
-    .onConflictDoUpdate({ target: t.runTraces.runId, set: { trace } });
+    .values({ runId, trace: doc })
+    .onConflictDoUpdate({
+      target: t.runTraces.runId,
+      set: { trace: sql`(${t.runTraces.trace} - 'pending') || excluded.trace` },
+    });
+}
+
+export async function recordSkillDispatch(db: Db, runId: string, at: string): Promise<void> {
+  await db.update(t.runTraces)
+    .set({ trace: sql`${t.runTraces.trace} || ${JSON.stringify({ first_dispatch_at: at })}::jsonb` })
+    .where(eq(t.runTraces.runId, runId));
 }
 
 /** A trace inherits its workspace from its required run, even after its PR is deleted. */
 export async function getRunTrace(db: Db, workspaceId: string, runId: string): Promise<RunTrace | undefined> {
-  const [row] = await db.select({ trace: t.runTraces.trace })
+  const [row] = await db.select({ trace: sql`${t.runTraces.trace} - 'skill_snapshot' - 'first_dispatch_at'` })
     .from(t.runTraces)
     .innerJoin(t.agentRuns, eq(t.agentRuns.id, t.runTraces.runId))
     .leftJoin(t.pullRequests, eq(t.pullRequests.id, t.agentRuns.prId))
     .where(and(
       eq(t.runTraces.runId, runId),
       eq(t.agentRuns.workspaceId, workspaceId),
+      sql`not (${t.runTraces.trace} ? 'pending')`,
       or(isNull(t.agentRuns.prId), eq(t.pullRequests.workspaceId, workspaceId)),
     ));
   return row ? (row.trace as RunTrace) : undefined;

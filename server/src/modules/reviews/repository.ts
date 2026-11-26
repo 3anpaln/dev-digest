@@ -142,32 +142,13 @@ export class ReviewRepository {
   // ---- observability: agent_runs + run_traces ----------------------------
 
   /** Create an agent_runs row in `running` state; returns its id (= the runId). */
-  createAgentRun(values: {
-    workspaceId: string;
-    agentId: string | null;
-    prId: string;
-    provider: string | null;
-    model: string | null;
-  }): Promise<string> {
+  createAgentRun(values: Parameters<typeof runRepo.createAgentRun>[1]): Promise<string> {
     return runRepo.createAgentRun(this.db, values);
   }
 
   completeAgentRun(
     runId: string,
-    values: {
-      status: 'done' | 'failed' | 'cancelled';
-      durationMs: number;
-      tokensIn: number;
-      tokensOut: number;
-      findingsCount: number;
-      grounding: string;
-      /** Review score (0-100); null on failed/cancelled runs. */
-      score?: number | null;
-      /** Findings that tripped the agent's gate; 0 on failed/cancelled runs. */
-      blockers?: number | null;
-      /** Failure reason (status='failed') / cancellation note. Null clears it. */
-      error?: string | null;
-    },
+    values: Parameters<typeof runRepo.completeAgentRun>[2],
   ): Promise<boolean> {
     return runRepo.completeAgentRun(this.db, runId, values);
   }
@@ -178,8 +159,12 @@ export class ReviewRepository {
   }
 
   /** Persist the WHOLE run log as ONE document. PK = runId → agent_runs. */
-  saveRunTrace(runId: string, trace: RunTrace): Promise<void> {
-    return runRepo.saveRunTrace(this.db, runId, trace);
+  saveRunTrace(runId: string, trace: RunTrace, firstDispatchAt?: string): Promise<void> {
+    return runRepo.saveRunTrace(this.db, runId, trace, firstDispatchAt);
+  }
+
+  recordSkillDispatch(runId: string, at: string): Promise<void> {
+    return runRepo.recordSkillDispatch(this.db, runId, at);
   }
 
   getRunTrace(workspaceId: string, runId: string): Promise<RunTrace | undefined> {

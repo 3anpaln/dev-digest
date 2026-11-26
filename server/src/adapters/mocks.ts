@@ -89,6 +89,7 @@ export class MockLLMProvider implements LLMProvider {
   async completeStructured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>> {
     this.calls.push({ method: 'completeStructured', req });
     const fixture = this.opts.structuredBySchema?.[req.schemaName] ?? this.opts.structured ?? {};
+    req.onAttemptDispatch?.();
     req.onAttemptCost?.(0.001);
     const parsed = (req.schema as z.ZodType<T>).safeParse(fixture);
     if (!parsed.success) {

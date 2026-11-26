@@ -75,7 +75,7 @@ export class OpenRouterProvider implements LLMProvider {
     const messages = [...req.messages];
     let tokensIn = 0;
     let tokensOut = 0;
-    const costs = new AttemptCosts(req.model, this.estimateCost, req.onAttemptCost, req.checkCancelled);
+    const costs = new AttemptCosts(req.model, this.estimateCost, req.onAttemptCost, req.checkCancelled, req.onAttemptDispatch);
     const options = { timeout: req.timeoutMs ?? this.client.timeout, beforeAttempt: costs.beforeAttempt };
     let lastRaw = '';
 

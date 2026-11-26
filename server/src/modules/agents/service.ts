@@ -8,7 +8,7 @@ import type {
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
-import type { AgentsRepository } from './repository.js';
+import type { AgentsRepository, LinkedSkillRow } from './repository.js';
 import { updateAgent } from './application/update-agent.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
 
@@ -137,9 +137,12 @@ export class AgentsService {
   }
 
   /** Linked skills for an agent as AgentSkillLink[] (ordered). */
-  async skillLinks(agentId: string): Promise<AgentSkillLink[]> {
-    const links = await this.repo.linkedSkills(agentId);
-    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order }));
+  async skillLinks(workspaceId: string, agentId: string): Promise<AgentSkillLink[]> {
+    return this.toSkillLinks(agentId, await this.repo.linkedSkills(workspaceId, agentId));
+  }
+
+  private toSkillLinks(agentId: string, links: LinkedSkillRow[]): AgentSkillLink[] {
+    return links.map(({ skill, order }) => ({ agent_id: agentId, skill_id: skill.id, order }));
   }
 
   /**
@@ -151,10 +154,8 @@ export class AgentsService {
     agentId: string,
     skillIds: string[],
   ): Promise<AgentSkillLink[] | undefined> {
-    const agent = await this.repo.getById(workspaceId, agentId);
-    if (!agent) return undefined;
-    await this.repo.setSkills(agentId, skillIds);
-    return this.skillLinks(agentId);
+    const links = await this.repo.updateSkills(workspaceId, agentId, skillIds);
+    return links && this.toSkillLinks(agentId, links);
   }
 
   /** Link a single skill (append or set order) — additive to existing links. */
@@ -164,12 +165,8 @@ export class AgentsService {
     skillId: string,
     order?: number,
   ): Promise<AgentSkillLink[] | undefined> {
-    const agent = await this.repo.getById(workspaceId, agentId);
-    if (!agent) return undefined;
-    const existing = await this.repo.linkedSkills(agentId);
-    const resolvedOrder = order ?? existing.length;
-    await this.repo.linkSkill(agentId, skillId, resolvedOrder);
-    return this.skillLinks(agentId);
+    const links = await this.repo.updateSkills(workspaceId, agentId, { skillId, order });
+    return links && this.toSkillLinks(agentId, links);
   }
 
   /**

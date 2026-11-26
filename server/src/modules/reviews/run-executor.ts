@@ -1,5 +1,5 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import type { Provider, Review, RunSkill, RunTrace, UnifiedDiff } from '@devdigest/shared';
 import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
 import { RunLogger, savedLog } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
@@ -34,6 +34,14 @@ export type RunOutcome = {
   raw: Review;
 };
 
+export interface ReviewJob {
+  agent: AgentRow;
+  runId: string;
+  skills: RunSkill[];
+  skillBodies: string[];
+  skillConfigurationFailed: boolean;
+}
+
 /**
  * Owns the background execution of queued agent runs (extracted from
  * ReviewService; behaviour unchanged). Loads the diff + intent once, then
@@ -44,7 +52,6 @@ export class ReviewRunExecutor {
   constructor(
     private container: Container,
     private repo: ReviewRepository,
-    private agents: Container['agentsRepo'],
   ) {}
 
   /**
@@ -56,7 +63,7 @@ export class ReviewRunExecutor {
     workspaceId: string,
     pull: PullRow,
     repo: typeof schema.repos.$inferSelect,
-    jobs: { agent: AgentRow; runId: string }[],
+    jobs: ReviewJob[],
     logger?: Logger,
   ): Promise<void> {
     // ONE logger fanned out over every queued run: shared pre-work (diff +
@@ -104,14 +111,15 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
-    for (const { agent, runId } of jobs) {
+    for (const job of jobs) {
+      const { agent, runId } = job;
       const agentStart = Date.now();
       logger?.info(
         { runId, agent: agent.name, provider: agent.provider, model: agent.model, prId: pull.id },
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, job, runLog);
         logger?.info(
           {
             runId,
@@ -140,10 +148,11 @@ export class ReviewRunExecutor {
     pull: PullRow,
     repo: typeof schema.repos.$inferSelect,
     diff: UnifiedDiff,
-    agent: AgentRow,
-    runId: string,
+    job: ReviewJob,
     parentLog: RunLogger,
   ): Promise<RunOutcome> {
+    const { agent, runId, skills, skillBodies, skillConfigurationFailed } = job;
+    let firstDispatchAt: string | undefined;
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
     // events are already in this run's buffer, so the persisted trace below
@@ -153,6 +162,7 @@ export class ReviewRunExecutor {
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
 
     try {
+      if (skillConfigurationFailed) throw new Error('Could not load the saved skills for this agent');
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
       const llm = await runLog.step(
@@ -189,6 +199,14 @@ export class ReviewRunExecutor {
       // above, and persistence + observability below.
       const outcome = await reviewPullRequest({
         systemPrompt: agent.systemPrompt,
+        skills: skillBodies,
+        onAttemptDispatch: () => {
+          if (firstDispatchAt || skills.length === 0) return;
+          firstDispatchAt = new Date().toISOString();
+          void this.repo.recordSkillDispatch(runId, firstDispatchAt).catch(() => {
+            runLog.info('Skill usage will be recorded when the run finishes');
+          });
+        },
         model: agent.model,
         diff,
         llm,
@@ -272,6 +290,7 @@ export class ReviewRunExecutor {
             grounding,
           },
           prompt_assembly: outcome.assembly,
+          skills_used: skills,
           tool_calls: outcome.chunks.map((c) => ({
             tool: 'review_file',
             args: c.label,
@@ -285,7 +304,7 @@ export class ReviewRunExecutor {
           // diff load + intent), not just events recorded inside this method.
           log: savedLog(this.container.runBus, runId),
         };
-        await repo.saveRunTrace(runId, trace);
+        await repo.saveRunTrace(runId, trace, firstDispatchAt);
 
         return { review, findings: findingRows, grounding, raw: outcome.review };
       });
@@ -312,7 +331,10 @@ export class ReviewRunExecutor {
         })
         .catch(() => undefined);
       await this.repo
-        .saveRunTrace(runId, this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start))
+        .saveRunTrace(runId, {
+          ...this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start),
+          skills_used: firstDispatchAt ? skills : [],
+        }, firstDispatchAt)
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
