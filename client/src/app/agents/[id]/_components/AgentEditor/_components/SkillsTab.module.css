@@ -10,6 +10,9 @@
   background: var(--bg-surface);
 }
 .hint { margin-block: 12px; color: var(--text-secondary); }
+.group { margin-block: 16px; }
+.group h3 { font-size: 15px; font-weight: 700; }
+.group h4 { margin-top: 12px; }
 .list { display: grid; gap: 8px; margin-block: 12px; padding: 0; list-style: none; }
 .row {
   position: relative;
@@ -30,7 +33,6 @@
 .row[data-insertion="before"]::before { top: -5px; }
 .row[data-insertion="after"]::before { bottom: -5px; }
 .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.label input { accent-color: var(--accent); }
 .handle { color: var(--text-secondary); display: grid; min-width: 24px; min-height: 32px; place-items: center; }
 .handle[data-drag-handle] { cursor: grab; touch-action: none; user-select: none; }
 .handle[data-drag-handle]:active { cursor: grabbing; }

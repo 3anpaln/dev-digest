@@ -17,6 +17,12 @@ Studio users configure each reviewer's system prompt separately. Shared guidance
 
 Add **Skills** to the Skills Lab navigation. Open the library at `/skills`. Use the mockups' searchable list and selected-skill detail layout. Each row shows the name, short description, type, and enabled state. Show a useful empty state with **Add skill** when the library is empty, and distinguish a search with no matches from a load failure. A selection can be reopened after a refresh or from a direct link.
 
+Each card has an **Enabled** toggle and a **Delete** button independent of card selection. Confirm card actions before applying them. Deleting removes the skill, its saved versions, and its agent assignments. Existing runs keep the skills recorded in their traces. Running the seed can recreate a deleted built-in preset.
+
+Use a consistent card height. Show a labeled, color-coded type badge, the current version, and an agent icon with the number of assignments in the selected workspace. Truncate long descriptions on the card and show the full description in a popover on hover or keyboard focus.
+
+Use zero only when the assignment count is known. If the Skills list omits counts, read the current workspace's agent assignments. If both sources are unavailable, show the count as unavailable.
+
 Keep the selected skill's name, type, and current version above the tabs. In Config, use a Markdown source editor with line numbers and a visible unsaved state. In Preview, show the rendered body in the detail pane. In Versions, place **Diff** and **Restore** on older version rows.
 
 Size the Config editor to the available pane and viewport height. Soft-wrap long Markdown lines, including unbroken text, while preserving the source. Keep each line number beside the start of its source line and scroll the editor vertically when the body exceeds its height.
@@ -38,7 +44,9 @@ Size the Config editor to the available pane and viewport height. Soft-wrap long
 
 ## Agents → Skills
 
-Add a **Skills** tab alongside **Config** for each agent. List skills from the global library with a selection checkbox, name, type, and availability. Show a filter and an effective skill count above the list. The count reflects the full list. Newly selected skills go at the end of the agent's draft order.
+Show the saved skill assignment count on each agent card in both the Agents list and the editor sidebar. Include saved assignments for disabled skills in that count. On the Skills tab, show separate assigned and enabled totals. Group available skills by type and use the same type colors as the Skills library. Keep assigned skills in a single prompt-order list so users can reorder skills across types.
+
+Add a **Skills** tab alongside **Config** for each agent. List skills from the global library with an assignment toggle, name, type, and availability. The toggle updates the draft assignment. **Save changes** applies the updated assignments and order to future runs. Show a filter and an effective skill count above the list. The count reflects the full list. Newly selected skills go at the end of the agent's draft order.
 
 ### Drag and drop
 
@@ -82,6 +90,8 @@ Use **Runs with skill** as the usage label. Assigned and enabled skills are appl
 6. An agent with no effective skills still runs successfully with its normal prompt. If one agent's saved configuration cannot be resolved during **Run all**, its failure is visible and the other selected agents can complete.
 7. With skills A, B, and C selected in that order, drag C by its handle above A. The insertion indicator appears and the draft order becomes C, A, B. A review started before saving still uses A, B, C. After **Save changes** and a reload, the tab and the next review prompt both use C, A, B. Keyboard moves produce the same order changes and announce the new position. Cancelling a drag or applying and clearing a filter preserves the order.
 8. In Workspace A, one completed run dispatches three model requests using two skills and saves one accepted, one dismissed, and one pending finding. Each skill page in A shows one run, three findings, and a 50% finding accept rate. The same skill pages in Workspace B exclude A's run and findings. A run with only pending findings shows a dash for accept rate.
+9. With skill A open, turn off skill B from its card and confirm. The detail pane stays on A, and the next run of an agent assigned to B skips it. Cancel a delete confirmation to keep B. Confirm deletion to remove B from the library and its agent assignments. Earlier run traces still show B where it was used.
+10. An agent with one saved skill displays **1 skill** on both agent cards. Add a skill of another type and save. The cards show **2 skills**. Both skills appear in **Prompt order** and can be reordered across types. Unassigned skills appear under their color-coded type groups.
 
 ## Scope decisions and proposed improvements
 

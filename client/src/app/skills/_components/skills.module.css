@@ -24,12 +24,58 @@
   border: 1px solid var(--border);
   background: var(--bg-surface);
 }
-.card { display: grid; justify-items: start; gap: 7px; width: 100%; text-align: start; }
-.card[aria-current="true"] { border-color: var(--accent); }
-.card > span:first-child { display: flex; align-items: center; gap: 6px; justify-content: space-between; width: 100%; }
-.card strong { min-width: 0; overflow-wrap: anywhere; }
-.card small, .hint, .detail h3 small, .version time { color: var(--text-secondary); }
-.card p { color: var(--text-secondary); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+.card {
+  position: relative;
+  min-width: 0;
+  height: 104px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-rows: 24px 20px minmax(0, 1fr);
+  gap: 5px;
+}
+.card[data-active="true"] { border-color: var(--accent); }
+.cardSelect { min-width: 0; margin-inline-end: 64px; text-align: start; cursor: pointer; }
+.cardSelect::after { content: ""; position: absolute; inset: 0; }
+.cardSelect strong, .cardDescription {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cardDescription { min-width: 0; text-align: start; color: var(--text-secondary); }
+button.cardDescription { position: relative; z-index: 1; cursor: help; }
+.cardMeta { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.cardMeta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.descriptionPopover {
+  position: fixed;
+  z-index: 1000;
+  padding: 12px;
+  max-height: 40dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #0005;
+}
+.descriptionPopover p { margin-top: 4px; white-space: pre-wrap; color: var(--text-secondary); }
+.cardActions { position: absolute; z-index: 1; inset-block-start: 10px; inset-inline-end: 8px; display: flex; align-items: center; gap: 4px; }
+.cardActions > button:disabled { opacity: .5; }
+.cardActions > button:last-child { display: grid; width: 26px; height: 26px; place-items: center; color: var(--text-secondary); }
+.cardActions > button:last-child:not(:disabled):hover { color: var(--danger); }
+.hint, .detail h3 small, .version time { color: var(--text-secondary); }
 .hint { margin-block: 8px 16px; }
 .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 72rem; }
 .form label { display: grid; gap: 6px; }

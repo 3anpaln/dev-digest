@@ -133,6 +133,8 @@ export type Skill = z.infer<typeof Skill>;
 
 export const EditableSkill = Skill.extend({ revision: z.string().regex(/^[a-f0-9]{64}$/) });
 export type EditableSkill = z.infer<typeof EditableSkill>;
+export const SkillLibraryItem = EditableSkill.extend({ assigned_agents_count: z.number().int().nonnegative() });
+export type SkillLibraryItem = z.infer<typeof SkillLibraryItem>;
 
 export const SkillVersion = z.object({
   version: z.number().int().positive(),

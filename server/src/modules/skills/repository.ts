@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, or, sql } from 'drizzle-orm';
-import type { EditableSkill, SkillStats, SkillVersion } from '@devdigest/shared';
+import type { EditableSkill, SkillLibraryItem, SkillStats, SkillVersion } from '@devdigest/shared';
 import type { Db } from '../../db/client.js';
 import { agents, agentRuns, agentSkills, findings, reviews, runTraces, skills, skillVersions, workspaces } from '../../db/schema.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
@@ -31,10 +31,23 @@ function toSkill(row: SkillRow): EditableSkill {
 export class SkillsRepository {
   constructor(private readonly db: Db) {}
 
-  async list(workspaceId: string): Promise<EditableSkill[]> {
-    const rows = await this.db.select().from(skills).where(visibleSkills(workspaceId))
+  async list(workspaceId: string): Promise<SkillLibraryItem[]> {
+    const assignments = this.db.select({
+      skillId: agentSkills.skillId,
+      assignedCount: count().as('assigned_agents_count'),
+    }).from(agentSkills)
+      .innerJoin(agents, eq(agents.id, agentSkills.agentId))
+      .where(eq(agents.workspaceId, workspaceId))
+      .groupBy(agentSkills.skillId)
+      .as('skill_assignments');
+    const rows = await this.db.select({ skill: skills, assignedCount: assignments.assignedCount }).from(skills)
+      .leftJoin(assignments, eq(assignments.skillId, skills.id))
+      .where(visibleSkills(workspaceId))
       .orderBy(asc(skills.name), asc(skills.id));
-    return rows.map(toSkill);
+    return rows.map(({ skill, assignedCount }) => ({
+      ...toSkill(skill),
+      assigned_agents_count: assignedCount ?? 0,
+    }));
   }
 
   async create(input: SkillInput): Promise<EditableSkill> {
@@ -103,6 +116,18 @@ export class SkillsRepository {
         .set({ ...patch, version })
         .where(eq(skills.id, id)).returning();
       return toSkill(updated!);
+    });
+  }
+
+  async delete(workspaceId: string, id: string, revision: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [current] = await tx.select().from(skills)
+        .where(and(eq(skills.id, id), visibleSkills(workspaceId))).for('update');
+      if (!current) throw new NotFoundError('Skill not found');
+      if (revision !== revisionOf(current)) {
+        throw new AppError('stale_skill', 'This skill changed. Review the latest version before deleting it.', 409);
+      }
+      await tx.delete(skills).where(eq(skills.id, id));
     });
   }
 

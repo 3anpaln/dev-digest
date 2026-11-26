@@ -27,15 +27,15 @@
     { "cmd": ["wait", "--text", "Configuration"], "label": "Wait for the agent editor" },
     { "cmd": ["find", "role", "button", "click", "--name", "Skills"], "label": "Open the agent's Skills tab" },
     { "cmd": ["wait", "--text", "Flow rubric A"], "label": "Wait for the global skills to load" },
-    { "cmd": ["find", "role", "checkbox", "click", "--name", "Flow rubric A"], "label": "Assign the first skill" },
-    { "cmd": ["find", "role", "checkbox", "click", "--name", "Flow rubric B"], "label": "Assign the second skill" },
+    { "cmd": ["find", "role", "switch", "click", "--name", "Flow rubric A"], "label": "Assign the first skill" },
+    { "cmd": ["find", "role", "switch", "click", "--name", "Flow rubric B"], "label": "Assign the second skill" },
     { "cmd": ["drag", "li[data-selected=true][data-position='1'] [data-drag-handle]", "li[data-selected=true][data-position='0']"], "label": "Drag the second skill above the first with the browser pointer" },
     { "cmd": ["find", "role", "button", "click", "--name", "Save changes"], "label": "Save the dragged order" },
     { "cmd": ["wait", "--text", "Skill order saved."], "label": "Wait for the order to persist" },
     { "cmd": ["reload"], "label": "Reload the agent editor" },
     { "cmd": ["wait", "--text", "Flow rubric A"], "label": "Wait for saved assignments" },
     {
-      "cmd": ["eval", "Array.from(document.querySelector('#agent-skills-heading').closest('section').querySelectorAll('li[data-selected=true] label')).map(label => label.innerText).filter(label => label.startsWith('Flow rubric')).join(',')"],
+      "cmd": ["eval", "Array.from(document.querySelector('#agent-skills-heading').closest('section').querySelectorAll('li[data-selected=true] [role=switch]')).map(toggle => toggle.getAttribute('aria-label')).filter(label => label.startsWith('Flow rubric')).join(',')"],
       "label": "Confirm that the dragged order survived reload",
       "assert": { "stdoutIncludes": "Flow rubric B,Flow rubric A" }
     },
@@ -46,7 +46,7 @@
     { "cmd": ["reload"], "label": "Reload the keyboard order" },
     { "cmd": ["wait", "--text", "Flow rubric A"], "label": "Wait for the reordered assignments" },
     {
-      "cmd": ["eval", "Array.from(document.querySelector('#agent-skills-heading').closest('section').querySelectorAll('li[data-selected=true] label')).map(label => label.innerText).filter(label => label.startsWith('Flow rubric')).join(',')"],
+      "cmd": ["eval", "Array.from(document.querySelector('#agent-skills-heading').closest('section').querySelectorAll('li[data-selected=true] [role=switch]')).map(toggle => toggle.getAttribute('aria-label')).filter(label => label.startsWith('Flow rubric')).join(',')"],
       "label": "Confirm keyboard reordering survived reload",
       "assert": { "stdoutIncludes": "Flow rubric A,Flow rubric B" }
     }
