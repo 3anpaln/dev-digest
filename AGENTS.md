@@ -34,4 +34,6 @@ From the root, run `bash scripts/dev.sh` for the full stack. Use pnpm 10 for the
 
 ## Task completion
 
+For a manual PR self review, use the [PR Self Review skill](.claude/skills/pr-self-review/SKILL.md). When asked to open a GitHub PR, use `node scripts/pr-open.mjs --base <target-branch>` from the root.
+
 After verification and before the final response for each task, follow the [engineering-insights skill](.claude/skills/engineering-insights/SKILL.md).
