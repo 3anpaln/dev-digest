@@ -159,7 +159,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       expect(response.statusCode).toBe(201);
       const skill = response.json();
       const url = `/skills/${skill.id}`;
-      expect((await app.inject({ url: '/skills', headers: foreign })).json()).toContainEqual(skill);
+      expect((await app.inject({ url: '/skills', headers: foreign })).json()).toContainEqual({ ...skill, assigned_agents_count: 0 });
 
       const patch = (revision: string, fields: object) => app.inject({
         method: 'PUT', url, headers: foreign, payload: { revision, ...fields },
@@ -184,6 +184,21 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       expect((await app.inject({ url: assignments })).json()).toMatchObject([{ skill_id: skill.id, order: 0 }]);
       expect((await app.inject({ url: assignments, headers: foreign })).statusCode).toBe(404);
       expect((await app.inject({ url: `${url}/stats`, headers: foreign })).json()).toMatchObject({ agents: [], runs: 0 });
+      expect((await app.inject({ url: '/skills' })).json()).toContainEqual(expect.objectContaining({ id: skill.id, assigned_agents_count: 1 }));
+      expect((await app.inject({ url: '/skills', headers: foreign })).json())
+        .toContainEqual(expect.objectContaining({ id: skill.id, assigned_agents_count: 0 }));
+
+      const deletion = (id: string, revision: string, headers?: typeof foreign) => app.inject({
+        method: 'DELETE', url: `/skills/${id}?revision=${revision}`, headers,
+      });
+      const list = (await app.inject({ url: '/skills' })).json();
+      const privateRevision = list.find((item: { id: string }) => item.id === privateSkill!.id).revision;
+      const latestRevision = list.find((item: { id: string }) => item.id === skill.id).revision;
+      expect((await deletion(privateSkill!.id, privateRevision, foreign)).statusCode).toBe(404);
+      expect((await deletion(skill.id, skill.revision)).statusCode).toBe(409);
+      expect((await deletion(skill.id, latestRevision)).statusCode).toBe(204);
+      expect((await app.inject({ url: assignments })).json()).toEqual([]);
+      expect((await app.inject({ url: `${url}/versions` })).statusCode).toBe(404);
     } finally {
       await app.close();
     }

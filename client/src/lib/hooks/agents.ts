@@ -3,6 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { skillLibraryKey } from "./skills";
 import type { Agent, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
 
 export function useAgents() {
@@ -76,6 +77,7 @@ export function useDeleteAgent() {
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: ["agents"] });
       qc.removeQueries({ queryKey: ["agent", id] });
+      void qc.invalidateQueries({ queryKey: skillLibraryKey });
     },
   });
 }

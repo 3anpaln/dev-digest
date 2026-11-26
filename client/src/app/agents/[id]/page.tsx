@@ -10,6 +10,7 @@ import { AppShell } from "../../../components/app-shell";
 import { AgentCard } from "../_components/AgentCard";
 import { AgentEditor } from "./_components/AgentEditor";
 import { useAgents, useAgent, useUpdateAgent } from "../../../lib/hooks/agents";
+import { useAgentSkillCounts } from "../../../lib/hooks/skills";
 import { ApiError } from "../../../lib/api";
 
 const VALID_TABS = ["config", "skills"];
@@ -23,6 +24,7 @@ export default function AgentEditorPage() {
   const { data: agents } = useAgents();
   const { data: agent, isLoading, isError, error, refetch } = useAgent(id);
   const update = useUpdateAgent();
+  const skillCounts = useAgentSkillCounts(agents ?? []);
 
   const tab = VALID_TABS.includes(search.get("tab") ?? "") ? search.get("tab")! : "config";
   const setTab = (t: string) => {
@@ -84,6 +86,7 @@ export default function AgentEditorPage() {
               <AgentCard
                 key={a.id}
                 ag={a}
+                skillCount={skillCounts.get(a.id)}
                 active={a.id === id}
                 onClick={() => router.push(`/agents/${a.id}?tab=${tab}`)}
                 onToggle={(enabled) => update.mutate({ id: a.id, patch: { enabled } })}

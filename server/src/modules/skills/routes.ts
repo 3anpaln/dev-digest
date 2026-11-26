@@ -43,6 +43,14 @@ export default async function skillsRoutes(base: FastifyInstance) {
     return repo.versions(workspaceId, req.params.id);
   });
 
+  app.delete('/skills/:id', {
+    schema: { params: IdParams, querystring: z.object({ revision: Revision }) },
+  }, async (req, reply) => {
+    const { workspaceId } = await getContext(app.container, req);
+    await repo.delete(workspaceId, req.params.id, req.query.revision);
+    return reply.code(204).send();
+  });
+
   app.post('/skills/:id/restore', {
     schema: { params: IdParams, body: z.object({ revision: Revision, version: z.number().int().positive() }) },
   }, async (req) => {
