@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Badge, Button, Icon, Markdown, Tabs } from "@devdigest/ui";
+import { Badge, Button, Icon, Markdown, Tabs, Toggle } from "@devdigest/ui";
 import type { EditableSkill } from "@devdigest/shared";
 import { AppShell } from "../../../components/app-shell";
 import { ApiError } from "../../../lib/api";
@@ -117,8 +117,11 @@ export function SkillsLibrary() {
                 <form className={styles.form} onSubmit={submit}>
                   <div className={styles.heading}>
                     <h3>Configuration</h3>
-                    <label className={styles.enabled}><input type="checkbox" checked={fields.enabled} disabled={save.isPending}
-                      onChange={(event) => edit({ enabled: event.target.checked })} /> Enabled</label>
+                    <div className={styles.enabled}>
+                      <span>Enabled</span>
+                      <Toggle label="Enabled" on={fields.enabled} disabled={save.isPending}
+                        onChange={(enabled) => edit({ enabled })} />
+                    </div>
                   </div>
                   <label>Name <input required maxLength={200} value={fields.name} disabled={save.isPending} onChange={(event) => edit({ name: event.target.value })} /></label>
                   <label>Description <input maxLength={4000} value={fields.description} disabled={save.isPending} onChange={(event) => edit({ description: event.target.value })} /></label>
