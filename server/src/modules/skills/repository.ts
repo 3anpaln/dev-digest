@@ -9,6 +9,11 @@ type SkillRow = typeof skills.$inferSelect;
 type SkillInput = Pick<SkillRow, 'name' | 'description' | 'type' | 'body' | 'enabled'>;
 const LIBRARY_OWNER_ID = '7bf44079-ec76-41ea-b58a-5dbde0eb210e';
 
+async function ensureLibraryOwner(db: Pick<Db, 'insert'>): Promise<void> {
+  await db.insert(workspaces).values({ id: LIBRARY_OWNER_ID, name: 'Shared Skills Library' })
+    .onConflictDoNothing({ target: workspaces.id });
+}
+
 // New skills are shared. Existing private skills stay visible to their owners.
 export function visibleSkills(workspaceId: string) {
   return or(eq(skills.workspaceId, LIBRARY_OWNER_ID), eq(skills.workspaceId, workspaceId));
@@ -34,11 +39,29 @@ export class SkillsRepository {
 
   async create(input: SkillInput): Promise<EditableSkill> {
     return this.db.transaction(async (tx) => {
-      await tx.insert(workspaces).values({ id: LIBRARY_OWNER_ID, name: 'Shared Skills Library' })
-        .onConflictDoNothing({ target: workspaces.id });
+      await ensureLibraryOwner(tx);
       const [row] = await tx.insert(skills).values({ ...input, workspaceId: LIBRARY_OWNER_ID, source: 'manual' }).returning();
       await tx.insert(skillVersions).values({ skillId: row!.id, version: 1, body: row!.body });
       return toSkill(row!);
+    });
+  }
+
+  async seedPresets(presets: ReadonlyArray<Omit<SkillInput, 'enabled'> & { id: string }>): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      await ensureLibraryOwner(tx);
+      const existing = await tx.select({ name: skills.name }).from(skills)
+        .where(eq(skills.workspaceId, LIBRARY_OWNER_ID));
+      const names = new Set(existing.map(({ name }) => name.trim().toLowerCase()));
+      const missing = presets.filter(({ name }) => !names.has(name.toLowerCase()));
+      if (missing.length === 0) return 0;
+      const inserted = await tx.insert(skills)
+        .values(missing.map((preset) => ({ ...preset, workspaceId: LIBRARY_OWNER_ID, source: 'manual' as const })))
+        .onConflictDoNothing({ target: skills.id })
+        .returning({ skillId: skills.id, body: skills.body });
+      if (inserted.length > 0) {
+        await tx.insert(skillVersions).values(inserted.map((skill) => ({ ...skill, version: 1 })));
+      }
+      return inserted.length;
     });
   }
 

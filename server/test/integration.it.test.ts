@@ -4,7 +4,8 @@ import { eq } from 'drizzle-orm';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
-import { seed } from '../src/db/seed.js';
+import { seed, seedReviewSkills } from '../src/db/seed.js';
+import { REVIEW_SKILL_PRESETS } from '../src/db/seed-review-skills.js';
 import * as t from '../src/db/schema.js';
 import { MockGitClient, MockGitHubClient } from '../src/adapters/mocks.js';
 
@@ -71,6 +72,22 @@ d('Testcontainers: pg + pgvector', () => {
     await seed(pg.handle.db);
     const ws = await pg.handle.db.select().from(t.workspaces);
     expect(ws.filter((w) => w.name === 'default')).toHaveLength(1);
+  });
+
+  it('seeds all review skills and preserves edits on subsequent runs', async () => {
+    const { db } = pg.handle;
+    await seed(db);
+    const presets = await db.select().from(t.skills);
+    expect(presets.map(({ name }) => name).sort()).toEqual(REVIEW_SKILL_PRESETS.map(({ name }) => name).sort());
+    const skill = presets.find(({ name }) => name === 'Route compatibility')!;
+    const versions = await db.select().from(t.skillVersions).where(eq(t.skillVersions.skillId, skill.id));
+    expect(versions).toMatchObject([{ version: 1, body: skill.body }]);
+
+    await db.update(t.skills).set({ name: 'My route checks', enabled: false }).where(eq(t.skills.id, skill.id));
+    expect(await seedReviewSkills(db)).toBe(0);
+    const after = await db.select().from(t.skills);
+    expect(after).toHaveLength(REVIEW_SKILL_PRESETS.length);
+    expect(after.find(({ id }) => id === skill.id)).toMatchObject({ name: 'My route checks', enabled: false });
   });
 });
 
