@@ -84,6 +84,7 @@ export interface ReviewInput {
   sessionId?: string;
   /** Progress sink. */
   onEvent?: (e: ReviewEvent) => void;
+  onAttemptDispatch?: () => void;
   /**
    * Cancellation checkpoint, called before each (expensive) chunk LLM call.
    * Supply a function that THROWS to abort mid-run (the caller owns the error
@@ -177,6 +178,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       schema: ReviewSchema,
       schemaName: 'Review',
       checkCancelled: input.checkCancelled,
+      onAttemptDispatch: input.onAttemptDispatch,
       onAttemptCost: (usd) => {
         const usage = { attempt_id: String(++attemptId), cost_usd: usd };
         emit('result', 'Model attempt usage', { usage });

@@ -76,6 +76,13 @@ export const RunStats = z.object({
 });
 export type RunStats = z.infer<typeof RunStats>;
 
+export const RunSkill = z.object({
+  id: z.string(),
+  name: z.string(),
+  version: z.number().int().positive(),
+});
+export type RunSkill = z.infer<typeof RunSkill>;
+
 /** The single-document trace stored in `run_traces.trace`. */
 export const RunTrace = z.object({
   config: z.object({
@@ -87,6 +94,7 @@ export const RunTrace = z.object({
     source: z.enum(['local', 'ci']).default('local'),
   }),
   stats: RunStats,
+  skills_used: z.array(RunSkill).optional(),
   prompt_assembly: PromptAssembly,
   tool_calls: z.array(ToolCall),
   raw_output: z.string(),

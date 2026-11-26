@@ -3,6 +3,8 @@ import { pathToFileURL } from 'node:url';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
 import { eq, and } from 'drizzle-orm';
+import { SkillsRepository } from '../modules/skills/repository.js';
+import { REVIEW_SKILL_PRESETS } from './seed-review-skills.js';
 import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
@@ -20,14 +22,16 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
  * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
- *
- * Later milestones populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * Performance), all on the default openrouter/deepseek-v4-flash provider+model,
+ * and the shared review skills.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
 export const SYSTEM_USER_EMAIL = 'you@local';
+
+export function seedReviewSkills(db: Db): Promise<number> {
+  return new SkillsRepository(db).seedPresets(REVIEW_SKILL_PRESETS);
+}
 
 export async function seed(db: Db): Promise<{ workspaceId: string; userId: string }> {
   // ---- workspace + user (no-auth defaults) ----
@@ -221,6 +225,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     if (!existing) await db.insert(t.agents).values(a);
   }
 
+  await seedReviewSkills(db);
   return { workspaceId, userId };
 }
 
@@ -232,7 +237,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
   const handle = createDb(url);
-  seed(handle.db)
+  const operation = process.argv.includes('--review-skills')
+    ? seedReviewSkills(handle.db).then((added) => ({ reviewSkillsAdded: added }))
+    : seed(handle.db);
+  operation
     .then(async (r) => {
       console.log('✓ seeded', r);
       await handle.close();

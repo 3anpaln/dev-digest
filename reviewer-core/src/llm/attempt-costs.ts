@@ -8,6 +8,7 @@ export class AttemptCosts {
     private readonly estimate?: (model: string, input: number, output: number) => number | null,
     private readonly onAttemptCost?: (usd: number | null) => void,
     private readonly checkCancelled?: () => void,
+    private readonly onDispatch?: () => void,
   ) {}
 
   beforeAttempt = (retryCount = 0): void => {
@@ -15,6 +16,7 @@ export class AttemptCosts {
     if (retryCount > 0) this.record(null);
     this.blockedBeforeDispatch = true;
     this.checkCancelled?.();
+    this.onDispatch?.();
     this.blockedBeforeDispatch = false;
   };
 

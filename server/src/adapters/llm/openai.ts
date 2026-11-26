@@ -92,7 +92,7 @@ export class OpenAIProvider implements LLMProvider {
     let tokensIn = 0;
     let tokensOut = 0;
     let lastRaw = '';
-    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost, req.checkCancelled);
+    const costs = new AttemptCosts(req.model, estimateCost, req.onAttemptCost, req.checkCancelled, req.onAttemptDispatch);
     const options = { timeout: req.timeoutMs ?? DEFAULT_TIMEOUT, beforeAttempt: costs.beforeAttempt };
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {

@@ -4,10 +4,11 @@ import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { AgentRow } from '../../db/rows.js';
 import { ReviewRepository } from './repository.js';
 import { type ReviewDto, type ReviewDtoFinding } from './helpers.js';
-import { ReviewRunExecutor, type Logger } from './run-executor.js';
+import { ReviewRunExecutor, type Logger, type ReviewJob } from './run-executor.js';
 import { actOnFinding as actOnFindingImpl } from './findings.js';
 import { loggedCost } from '../pulls/latest-run.js';
 import { reviewToDto } from './helpers.js';
+import { wrapUntrusted } from '@devdigest/reviewer-core';
 
 // Re-export DTO types + converters for backward-compatible imports from
 // './service.js' (these previously lived here; logic now in ./helpers.ts).
@@ -34,7 +35,7 @@ export class ReviewService {
   constructor(private container: Container) {
     this.repo = new ReviewRepository(container.db);
     this.agents = container.agentsRepo;
-    this.executor = new ReviewRunExecutor(container, this.repo, this.agents);
+    this.executor = new ReviewRunExecutor(container, this.repo);
   }
 
   // ===========================================================================
@@ -116,17 +117,32 @@ export class ReviewService {
     // the client persists these in global state and subscribes to the SSE
     // stream. The actual (slow) review runs in the background below.
     const runs: { run_id: string; agent_id: string; agent_name: string }[] = [];
-    const jobs: { agent: AgentRow; runId: string }[] = [];
+    const jobs: ReviewJob[] = [];
     for (const agent of targets) {
+      const linked = await this.agents.linkedSkills(workspaceId, agent.id).catch((err: unknown) => {
+        logger?.error({ err, agentId: agent.id }, 'review: could not resolve agent skills');
+        return undefined;
+      });
+      const effective = linked?.filter(({ skill }) => skill.enabled) ?? [];
+      const skills = effective.map(({ skill: { id, name, version } }) => ({ id, name, version }));
       const runId = await this.repo.createAgentRun({
         workspaceId,
         agentId: agent.id,
         prId,
         provider: agent.provider,
         model: agent.model,
+        skillSnapshot: skills,
       });
       runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
-      jobs.push({ agent, runId });
+      jobs.push({
+        agent,
+        runId,
+        skills,
+        skillBodies: effective.map(({ skill }) => skill.source === 'manual'
+          ? skill.body
+          : wrapUntrusted('legacy-skill', skill.body)),
+        skillConfigurationFailed: linked === undefined,
+      });
     }
 
     // Fire-and-forget: the HTTP response returns now with the runIds; reviews

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { RunTrace } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/runs.json"; // apps/web/messages/en/runs.json
@@ -52,6 +52,16 @@ describe("A5 Run Trace drawer (smoke)", () => {
     expect(tile.previousElementSibling).toHaveTextContent("TOKENS");
     expect(tile.nextElementSibling).toHaveTextContent("FINDINGS");
     expect(screen.getByText("Tool calls")).toBeInTheDocument();
+  });
+
+  it("shows the skill names and versions in the recorded prompt order", () => {
+    renderWithIntl(<TraceBody trace={{
+      ...TRACE,
+      skills_used: [{ id: "second", name: "Repository rules", version: 3 }, { id: "first", name: "Review rubric", version: 1 }],
+    }} findings={[]} />);
+    const names = within(screen.getByRole("list", { name: "Skills used" }))
+      .getAllByRole("listitem").map((item) => item.textContent);
+    expect(names).toEqual(["Repository rules v3", "Review rubric v1"]);
   });
 
   it.each([

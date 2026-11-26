@@ -1,9 +1,11 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
 import { DEFAULT_AGENT_DESCRIPTION, INITIAL_AGENT_VERSION } from './constants.js';
 import type { AgentUpdateStore } from './application/update-agent.js';
+import { visibleSkills } from '../skills/repository.js';
+import { ValidationError } from '../../platform/errors.js';
 
 /**
  * A2 — agents data-access. Owns `agents`, `agent_versions`, and the
@@ -161,43 +163,49 @@ export class AgentsRepository implements AgentUpdateStore {
   // ---- agent_skills link table (A2 owns the agent side) -------------------
 
   /** Skills linked to an agent, in `order` ascending. */
-  async linkedSkills(agentId: string): Promise<LinkedSkillRow[]> {
-    const rows = await this.db
+  async linkedSkills(workspaceId: string, agentId: string, db: Pick<Db, 'select'> = this.db): Promise<LinkedSkillRow[]> {
+    return db
       .select({ skill: t.skills, order: t.agentSkills.order })
       .from(t.agentSkills)
       .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
-      .where(eq(t.agentSkills.agentId, agentId))
-      .orderBy(asc(t.agentSkills.order));
-    return rows.map((r) => ({ skill: r.skill, order: r.order }));
+      .innerJoin(t.agents, eq(t.agents.id, t.agentSkills.agentId))
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agents.workspaceId, workspaceId), visibleSkills(workspaceId)))
+      .orderBy(asc(t.agentSkills.order), asc(t.agentSkills.skillId));
   }
 
-  /** Link a skill to an agent at a given order (idempotent: upserts order). */
-  async linkSkill(agentId: string, skillId: string, order: number): Promise<void> {
-    await this.db
-      .insert(t.agentSkills)
-      .values({ agentId, skillId, order })
-      .onConflictDoUpdate({
-        target: [t.agentSkills.agentId, t.agentSkills.skillId],
-        set: { order },
-      });
-  }
+  async updateSkills(
+    workspaceId: string,
+    agentId: string,
+    change: string[] | { skillId: string; order?: number },
+  ): Promise<LinkedSkillRow[] | undefined> {
+    return this.db.transaction(async (tx) => {
+      const [agent] = await tx.select().from(t.agents)
+        .where(and(eq(t.agents.id, agentId), eq(t.agents.workspaceId, workspaceId))).for('update');
+      if (!agent) return undefined;
 
-  async unlinkSkill(agentId: string, skillId: string): Promise<void> {
-    await this.db
-      .delete(t.agentSkills)
-      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agentSkills.skillId, skillId)));
-  }
+      const current = await this.linkedSkills(workspaceId, agentId, tx);
+      const ids = Array.isArray(change) ? change : current.map(({ skill }) => skill.id);
+      if (!Array.isArray(change)) {
+        const previous = ids.indexOf(change.skillId);
+        if (previous >= 0) ids.splice(previous, 1);
+        ids.splice(Math.max(0, change.order ?? (previous >= 0 ? previous : ids.length)), 0, change.skillId);
+      }
+      if (new Set(ids).size !== ids.length) throw new ValidationError('Each skill can be assigned only once');
+      if (ids.length === current.length && current.every(({ skill }, index) => skill.id === ids[index])) return current;
 
-  /**
-   * Replace the full set of linked skills for an agent with `skillIds`, assigning
-   * order = index. Used by the "Skills" editor tab (attach/reorder). Skills not in
-   * the list are unlinked.
-   */
-  async setSkills(agentId: string, skillIds: string[]): Promise<void> {
-    await this.db.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
-    if (skillIds.length === 0) return;
-    await this.db
-      .insert(t.agentSkills)
-      .values(skillIds.map((skillId, i) => ({ agentId, skillId, order: i })));
+      if (ids.length > 0) {
+        const visible = await tx.select({ id: t.skills.id }).from(t.skills)
+          .where(and(inArray(t.skills.id, ids), visibleSkills(workspaceId)));
+        if (visible.length !== ids.length) throw new ValidationError('One or more skills are unavailable');
+      }
+      await tx.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
+      if (ids.length > 0) {
+        await tx.insert(t.agentSkills).values(ids.map((skillId, order) => ({ agentId, skillId, order })));
+      }
+      const version = agent.version + 1;
+      await tx.update(t.agents).set({ version }).where(eq(t.agents.id, agentId));
+      await this.snapshotVersion(tx, { ...agent, version });
+      return this.linkedSkills(workspaceId, agentId, tx);
+    });
   }
 }

@@ -23,6 +23,7 @@ From the root, run `bash scripts/dev.sh` for the full stack. Use pnpm 10 for the
 
 ## Do not touch
 
+- Preserve existing files in `server/src/db/migrations/`, including SQL migrations and snapshots. Add a new migration and append its journal entry for schema changes.
 - Keep real keys in local settings or environment files. Use `.env.example` for tracked configuration examples.
 - Keep application edits out of imported checkouts (`server/clones/` by default), installed dependencies (`node_modules/`), and generated output (`.next/`, `dist/`, `coverage/`, `test-results/`).
 

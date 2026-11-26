@@ -26,11 +26,12 @@ export function safeUrlTransform(url: string): string {
  * whatever context the model was tricked into writing into it. Images are
  * therefore rendered as inert text with their URL visible, never loaded.
  */
-export function Markdown({ children }: { children?: string | null }) {
+export function Markdown({ children, skipHtml = false }: { children?: string | null; skipHtml?: boolean }) {
   if (!children) return null;
   return (
     <div className="dd-md" style={{ fontSize: "inherit", lineHeight: 1.55 }}>
       <ReactMarkdown
+        skipHtml={skipHtml}
         remarkPlugins={[remarkGfm]}
         urlTransform={safeUrlTransform}
         components={{

