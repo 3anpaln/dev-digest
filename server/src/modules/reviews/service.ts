@@ -9,6 +9,7 @@ import { actOnFinding as actOnFindingImpl } from './findings.js';
 import { loggedCost } from '../pulls/latest-run.js';
 import { reviewToDto } from './helpers.js';
 import { wrapUntrusted } from '@devdigest/reviewer-core';
+import { isStudioSkill } from '../skills/repository.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
 // './service.js' (these previously lived here; logic now in ./helpers.ts).
@@ -138,7 +139,7 @@ export class ReviewService {
         agent,
         runId,
         skills,
-        skillBodies: effective.map(({ skill }) => skill.source === 'manual'
+        skillBodies: effective.map(({ skill }) => isStudioSkill(skill)
           ? skill.body
           : wrapUntrusted('legacy-skill', skill.body)),
         skillConfigurationFailed: linked === undefined,

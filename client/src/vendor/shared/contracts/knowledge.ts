@@ -115,8 +115,17 @@ export type MemoryItem = z.infer<typeof MemoryItem>;
 export const SkillType = z.enum(['rubric', 'convention', 'security', 'custom']);
 export type SkillType = z.infer<typeof SkillType>;
 
-export const SkillSource = z.enum(['manual', 'imported_url', 'extracted', 'community']);
+export const SkillImportSource = z.enum(['imported_file', 'imported_url']);
+export type SkillImportSource = z.infer<typeof SkillImportSource>;
+export const SkillSource = z.enum(['manual', ...SkillImportSource.options, 'extracted', 'community']);
 export type SkillSource = z.infer<typeof SkillSource>;
+export type SkillImportDraft = { name: string; description: string; type: SkillType; body: string };
+export type SkillImportPreview = {
+  token: string;
+  source: SkillImportSource;
+  reference: string;
+  draft: SkillImportDraft;
+};
 
 export const Skill = z.object({
   id: z.string(),

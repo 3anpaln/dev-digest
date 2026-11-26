@@ -1,13 +1,14 @@
 "use client";
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Agent, AgentSkillLink, EditableSkill, SkillLibraryItem, SkillStats, SkillVersion } from "@devdigest/shared";
-import { api } from "../api";
+import type { Agent, AgentSkillLink, EditableSkill, SkillImportDraft, SkillImportPreview, SkillLibraryItem, SkillStats, SkillVersion } from "@devdigest/shared";
+import { api, ApiError } from "../api";
 
 export type SkillFields = Pick<EditableSkill, "name" | "description" | "type" | "body" | "enabled">;
 export const skillLibraryKey = ["skills"] as const;
 type LibraryEntry = Omit<SkillLibraryItem, "assigned_agents_count"> & { assigned_agents_count: number | null };
 type SkillListResponse = EditableSkill & { assigned_agents_count?: number };
+type SkillPreviewInput = { kind: "file"; filename: string; content: string } | { kind: "url"; url: string };
 
 async function loadSkillLibrary(): Promise<LibraryEntry[]> {
   const skills = await api.get<SkillListResponse[]>("/skills");
@@ -71,6 +72,23 @@ export function useSaveSkill() {
   });
 }
 
+export function useSkillImportPreview() {
+  return useMutation({ mutationFn: (input: SkillPreviewInput) => api.post<SkillImportPreview>("/skills/import/preview", input) });
+}
+
+export function useConfirmSkillImport() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { token: string; fields: SkillImportDraft }) => api.post<EditableSkill>("/skills/import", input),
+    onSuccess: (skill) => {
+      cache.setQueryData<LibraryEntry[]>(skillLibraryKey, (list = []) => [
+        ...list.filter((item) => item.id !== skill.id), { ...skill, assigned_agents_count: 0 },
+      ].sort((left, right) => left.name.localeCompare(right.name)));
+      void cache.invalidateQueries({ queryKey: skillLibraryKey });
+    },
+  });
+}
+
 export function useRestoreSkill() {
   const cache = useQueryClient();
   return useMutation({
@@ -91,7 +109,14 @@ export function useSkillCardAction() {
     mutationFn: async ({ skill, enabled }: { skill: EditableSkill; enabled?: boolean }) => {
       const path = `/skills/${skill.id}`;
       if (enabled === undefined) {
-        await api.del<void>(`${path}?revision=${skill.revision}`);
+        try {
+          await api.del<void>(`${path}?revision=${skill.revision}`);
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 404 && error.code === undefined) {
+            throw new Error("The running DevDigest API does not support skill deletion yet. Restart the API and try again.");
+          }
+          throw error;
+        }
         return null;
       }
       return api.put<EditableSkill>(path, { revision: skill.revision, enabled });
