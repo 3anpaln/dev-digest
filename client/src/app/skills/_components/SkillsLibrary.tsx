@@ -169,7 +169,7 @@ export function SkillsLibrary() {
                 <h3>Preview <small>v{skill.version}</small></h3>
                 <p className={styles.hint}>Saved instructions used in review prompts.</p>
                 <div className={styles.markdown}>
-                  <Markdown>{skill.body}</Markdown>
+                  <Markdown skipHtml>{skill.body}</Markdown>
                 </div>
               </section>}
               {tab === "evals" && <section><h3>Evals</h3><p className={styles.hint}>No evaluation cases yet.</p></section>}

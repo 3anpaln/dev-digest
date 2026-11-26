@@ -153,6 +153,7 @@ export class ReviewRunExecutor {
   ): Promise<RunOutcome> {
     const { agent, runId, skills, skillBodies, skillConfigurationFailed } = job;
     let firstDispatchAt: string | undefined;
+    let skillDispatchWrite: Promise<void> | undefined;
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
     // events are already in this run's buffer, so the persisted trace below
@@ -201,9 +202,11 @@ export class ReviewRunExecutor {
         systemPrompt: agent.systemPrompt,
         skills: skillBodies,
         onAttemptDispatch: () => {
-          if (firstDispatchAt || skills.length === 0) return;
+          if (firstDispatchAt) return;
           firstDispatchAt = new Date().toISOString();
-          void this.repo.recordSkillDispatch(runId, firstDispatchAt).catch(() => {
+          runLog.info(`Using ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'} in the review prompt`);
+          if (skills.length === 0) return;
+          skillDispatchWrite = this.repo.recordSkillDispatch(runId, firstDispatchAt).catch(() => {
             runLog.info('Skill usage will be recorded when the run finishes');
           });
         },
@@ -229,6 +232,8 @@ export class ReviewRunExecutor {
           if (bus.isCancelled(runId) || bus.isComplete(runId)) throw new RunCancelledError();
         },
       });
+      // Finish the pending trace write before replacing it with the final document.
+      await skillDispatchWrite;
       const { tokensIn, tokensOut, grounding } = outcome;
 
       const keptFindings = outcome.review.findings;
@@ -319,6 +324,7 @@ export class ReviewRunExecutor {
       const status = cancelled ? 'cancelled' : 'failed';
       const msg = cancelled ? 'Cancelled by user' : (err as Error).message;
       runLog.error(cancelled ? 'Run cancelled by user' : `Run failed: ${msg}`);
+      await skillDispatchWrite;
       await this.repo
         .completeAgentRun(runId, {
           status,

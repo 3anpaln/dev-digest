@@ -10,7 +10,7 @@ import { seed } from '../src/db/seed.js';
 import { MockLLMProvider, MockEmbedder, MockGitClient, MockGitHubClient } from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
 import { eq, inArray } from 'drizzle-orm';
-import type { Review, StructuredRequest } from '@devdigest/shared';
+import type { Review, RunTrace, StructuredRequest } from '@devdigest/shared';
 
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
@@ -251,10 +251,13 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         expect(prompt).toContain('First updated rule');
         expect(prompt).not.toContain('Second original rule');
       }
-      expect((await app.inject({ url: `/runs/${first}/trace` })).json().skills_used)
+      const firstTrace = (await app.inject({ url: `/runs/${first}/trace` })).json<RunTrace>();
+      const secondTrace = (await app.inject({ url: `/runs/${second}/trace` })).json<RunTrace>();
+      expect(firstTrace.skills_used)
         .toEqual([{ id: b.id, name: b.name, version: 1 }, { id: a.id, name: a.name, version: 1 }]);
-      expect((await app.inject({ url: `/runs/${second}/trace` })).json().skills_used)
-        .toEqual([{ id: a.id, name: a.name, version: 2 }]);
+      expect(secondTrace.skills_used).toEqual([{ id: a.id, name: a.name, version: 2 }]);
+      expect(firstTrace.log.filter(({ msg }) => msg === 'Using 2 skills in the review prompt')).toHaveLength(1);
+      expect(secondTrace.log.filter(({ msg }) => msg === 'Using 1 skill in the review prompt')).toHaveLength(1);
 
       const ownReviews = await db.select().from(t.reviews).where(inArray(t.reviews.runId, [first, second]));
       const findingRows = await db.select().from(t.findings).where(inArray(t.findings.reviewId, ownReviews.map((row) => row.id)));
@@ -733,6 +736,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     const trace = (await app.inject({ method: 'GET', url: `/runs/${runId}/trace` })).json();
     expect(trace.config.model).toBe('gpt-4.1');
     expect(trace.stats.grounding).toBe('1/2 passed');
+    expect(trace.log).toContainEqual(expect.objectContaining({ msg: 'Using 0 skills in the review prompt' }));
     expect(trace.log).toContainEqual(expect.objectContaining({ usage: { attempt_id: '1', cost_usd: 0.001 } }));
 
     // agent_runs row populated for A5 to aggregate
