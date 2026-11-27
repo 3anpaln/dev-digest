@@ -10,8 +10,9 @@ type SkillInput = Pick<SkillRow, 'name' | 'description' | 'type' | 'body' | 'ena
 const LIBRARY_OWNER_ID = '7bf44079-ec76-41ea-b58a-5dbde0eb210e';
 const IMPORT_PREVIEW_MARKER = 'studio-skill-import:v1';
 
-export function isStudioSkill({ source, evidenceFiles }: Pick<SkillRow, 'source' | 'evidenceFiles'>): boolean {
-  return source === 'manual' || ((source === 'imported_file' || source === 'imported_url')
+export function isStudioSkill({ source, evidenceFiles, conventionOrigin }: Pick<SkillRow, 'source' | 'evidenceFiles' | 'conventionOrigin'>): boolean {
+  return source === 'manual' || (source === 'extracted' && Boolean(conventionOrigin))
+    || ((source === 'imported_file' || source === 'imported_url')
     && evidenceFiles?.[1] === IMPORT_PREVIEW_MARKER);
 }
 
@@ -33,6 +34,23 @@ function toSkill(row: SkillRow): EditableSkill {
   const { id, name, description, type, source, body, enabled, version } = row;
   const evidence = row.evidenceFiles?.[1] === IMPORT_PREVIEW_MARKER ? row.evidenceFiles.slice(0, 1) : row.evidenceFiles;
   return { id, name, description, type, source, body, enabled, version, revision: revisionOf(row), evidence_files: evidence };
+}
+
+export async function insertSkillVersionOne(
+  tx: Pick<Db, 'insert'>, values: typeof skills.$inferInsert,
+): Promise<EditableSkill> {
+  const [row] = await tx.insert(skills).values(values).onConflictDoNothing({ target: skills.id }).returning();
+  if (!row) throw new AppError('skill_conflict', 'This skill creation ID is already in use.', 409);
+  await tx.insert(skillVersions).values({ skillId: row.id, version: 1, body: row.body });
+  return toSkill(row);
+}
+
+export async function findConventionSkill(
+  tx: Pick<Db, 'select'>, workspaceId: string, repoId: string, id: string, branch: string,
+): Promise<EditableSkill | undefined> {
+  const [row] = await tx.select().from(skills).where(and(eq(skills.workspaceId, workspaceId), eq(skills.id, id)));
+  return row?.source === 'extracted' && row.conventionOrigin?.repoId === repoId
+    && (row.conventionOrigin.branch ?? 'main') === branch ? toSkill(row) : undefined;
 }
 
 export class SkillsRepository {
@@ -60,14 +78,12 @@ export class SkillsRepository {
   async create(input: SkillInput, origin?: { source: SkillImportSource; reference: string }): Promise<EditableSkill> {
     return this.db.transaction(async (tx) => {
       await ensureLibraryOwner(tx);
-      const [row] = await tx.insert(skills).values({
+      return insertSkillVersionOne(tx, {
         ...input,
         workspaceId: LIBRARY_OWNER_ID,
         source: origin?.source ?? 'manual',
         ...(origin ? { enabled: false, evidenceFiles: [origin.reference, IMPORT_PREVIEW_MARKER] } : {}),
-      }).returning();
-      await tx.insert(skillVersions).values({ skillId: row!.id, version: 1, body: row!.body });
-      return toSkill(row!);
+      });
     });
   }
 

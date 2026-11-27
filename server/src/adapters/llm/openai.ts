@@ -10,7 +10,7 @@ import type {
 import { withRetry, withTimeout } from '../../platform/resilience.js';
 import { toJsonSchema, parseWithRepair } from '../../platform/structured.js';
 import { estimateCost } from './pricing.js';
-import { ExternalServiceError } from '../../platform/errors.js';
+import { ExternalServiceError, ResponseTokenLimitError } from '../../platform/errors.js';
 
 const DEFAULT_TIMEOUT = 60_000;
 const EMBED_MODEL = 'text-embedding-3-small';
@@ -118,6 +118,7 @@ export class OpenAIProvider implements LLMProvider {
       lastRaw = res.choices?.[0]?.message?.content ?? '';
       tokensIn += res.usage?.prompt_tokens ?? 0;
       tokensOut += res.usage?.completion_tokens ?? 0;
+      if (req.rejectTruncated && res.choices?.[0]?.finish_reason === 'length') throw new ResponseTokenLimitError();
 
       const parsed = parseWithRepair(req.schema, lastRaw);
       if (parsed.ok) {

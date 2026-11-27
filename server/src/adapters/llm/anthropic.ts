@@ -12,7 +12,7 @@ import type {
 import { withRetry, withTimeout } from '../../platform/resilience.js';
 import { toJsonSchema, parseWithRepair } from '../../platform/structured.js';
 import { estimateCost } from './pricing.js';
-import { ExternalServiceError } from '../../platform/errors.js';
+import { ExternalServiceError, ResponseTokenLimitError } from '../../platform/errors.js';
 
 class ReviewAnthropicClient extends Anthropic {
   override buildRequest(
@@ -144,6 +144,7 @@ export class AnthropicProvider implements LLMProvider {
       );
       tokensIn += usage?.input_tokens ?? 0;
       tokensOut += usage?.output_tokens ?? 0;
+      if (req.rejectTruncated && res.stop_reason === 'max_tokens') throw new ResponseTokenLimitError();
 
       const toolUse = res.content.find(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',

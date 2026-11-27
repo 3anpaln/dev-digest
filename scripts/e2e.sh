@@ -125,7 +125,7 @@ esac
 log "applying migrations (isolated db)"
 (cd server && pnpm db:migrate)
 log "seeding demo data (isolated db)"
-(cd server && pnpm db:seed)
+(cd server && pnpm db:seed --conventions-fixture)
 
 # --- API on :$API_PORT -------------------------------------------------------
 # tsx directly (not `pnpm start`, which needs a build; not `tsx watch`, to avoid

@@ -172,6 +172,16 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+export const ConventionDecision = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionDecision = z.infer<typeof ConventionDecision>;
+export const ConventionEvidence = z.object({
+  path: z.string(),
+  start_line: z.number().int().positive(),
+  end_line: z.number().int().positive(),
+  snippet: z.string(),
+  url: z.string(),
+});
+export type ConventionEvidence = z.infer<typeof ConventionEvidence>;
 export const ConventionCandidate = z.object({
   id: z.string(),
   rule: z.string(),
@@ -179,8 +189,62 @@ export const ConventionCandidate = z.object({
   evidence_snippet: z.string(),
   confidence: z.number().min(0).max(1),
   accepted: z.boolean(),
+  decision: ConventionDecision,
+  decided_at: z.string().datetime().nullable(),
+  carried_forward: z.boolean(),
+  scope: z.string(),
+  evidence: z.array(ConventionEvidence).min(1),
+  revision: z.string(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+export interface ConventionSkippedFile {
+  path: string;
+  reason: 'duplicate' | 'oversized_or_unavailable' | 'empty' | 'non_text' | 'line_too_long';
+}
+
+export interface ConventionScan {
+  id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  branch: string;
+  commit: string;
+  commit_url: string;
+  branch_url: string;
+  queued_at: string;
+  finished_at: string | null;
+  model_choice: { provider: Provider; model: string } | null;
+  findings_count: number | null;
+  files_analyzed: number | null;
+  branch_files_skipped: number | null;
+  focus_directory: string | null;
+  file_budget_reached: boolean | null;
+  file_limit: number | null;
+  max_response_tokens: number | null;
+  selected_files: string[] | null;
+  skipped_files: ConventionSkippedFile[] | null;
+  changes: { decisions_kept: number; new_findings: number; reviewed_not_rediscovered?: number; accepted_removed?: number } | null;
+  error: string | null;
+}
+
+export interface ConventionsPage {
+  active_branch: string | null;
+  readiness: 'ready' | 'clone';
+  repository: string;
+  latest: ConventionScan | null;
+  successful: ConventionScan | null;
+  findings: ConventionCandidate[];
+  attempts: ConventionScan[];
+}
+
+
+export interface ConventionSkillDraft {
+  revision: string;
+  accepted_count: number;
+  workspace_name?: string;
+  name: string;
+  description: string;
+  body: string;
+}
 
 // ---- Agents ----
 // 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a

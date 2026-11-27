@@ -34,6 +34,12 @@ export class ExternalServiceError extends AppError {
   }
 }
 
+export class ResponseTokenLimitError extends ExternalServiceError {
+  constructor() {
+    super('The model response reached its output token limit.');
+  }
+}
+
 export class ConfigError extends AppError {
   constructor(message: string, details?: unknown) {
     super('config_error', message, 500, details);

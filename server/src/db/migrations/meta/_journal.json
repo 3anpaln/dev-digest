@@ -71,6 +71,20 @@
       "when": 1781464392464,
       "tag": "0009_complex_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795781973770,
+      "tag": "0010_conventions_extractor",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795787315610,
+      "tag": "0011_convention_decision_history",
+      "breakpoints": true
     }
   ]
 }
