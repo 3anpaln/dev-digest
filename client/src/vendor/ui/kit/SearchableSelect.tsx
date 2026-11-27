@@ -14,6 +14,7 @@ export function SearchableSelect({
   value,
   onChange,
   options,
+  label,
   placeholder = "Search…",
   mono = true,
   maxHeight = 280,
@@ -21,6 +22,7 @@ export function SearchableSelect({
   value: string;
   onChange?: (v: string) => void;
   options: SelectOption[];
+  label?: string;
   placeholder?: string;
   mono?: boolean;
   maxHeight?: number;
@@ -30,6 +32,7 @@ export function SearchableSelect({
   const [hi, setHi] = React.useState(0);
   const ref = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -56,14 +59,18 @@ export function SearchableSelect({
   const current = options.find((o) => optValue(o) === value);
   const currentLabel = current ? optLabel(current) : value || placeholder;
 
+  const close = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
   const pick = (o: SelectOption) => {
     onChange?.(optValue(o));
-    setOpen(false);
+    close();
   };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHi((i) => Math.min(i + 1, filtered.length - 1));
+      setHi((i) => Math.min(i + 1, Math.max(0, filtered.length - 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHi((i) => Math.max(i - 1, 0));
@@ -73,16 +80,22 @@ export function SearchableSelect({
       if (o) pick(o);
     } else if (e.key === "Escape") {
       e.preventDefault();
-      setOpen(false);
+      close();
     }
   };
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <div
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={label ? `${label}: ${currentLabel}` : undefined}
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         style={{
           display: "flex",
+          width: "100%",
+          textAlign: "left",
           alignItems: "center",
           gap: 10,
           padding: "10px 12px",
@@ -106,7 +119,7 @@ export function SearchableSelect({
           {currentLabel}
         </span>
         <Icon.ChevronsUpDown size={14} style={{ color: "var(--text-muted)" }} />
-      </div>
+      </button>
       {open && (
         <div
           style={{
@@ -142,6 +155,7 @@ export function SearchableSelect({
               }}
               onKeyDown={onKey}
               placeholder={placeholder}
+              aria-label={label ? `${label} — ${placeholder}` : placeholder}
               className={mono ? "mono" : undefined}
               style={{
                 flex: 1,
