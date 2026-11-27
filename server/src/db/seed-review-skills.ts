@@ -78,4 +78,54 @@ export const REVIEW_SKILL_PRESETS = [
 - Check that a failed save preserves the draft or prior saved state and that a retry does not repeat completed side effects.
 - Report failures that leave misleading status, lose user work, or make recovery impossible. Cite the failure path and the expected recovery behavior.`,
   },
+  {
+    id: '54bd0641-daf4-4fe7-8cab-f447b9495688',
+    name: 'breaking-change',
+    type: 'rubric',
+    description: 'Find public API changes that break existing callers.',
+    body: `# Breaking change
+
+- Identify the affected public API and version from published contracts, documentation, or supported consumers. Compare the previous contract with the proposed behavior.
+- Check for removed or renamed operations, stricter input validation, newly required inputs or permissions, and changes to documented status codes, headers, or behavior. Check whether a compatibility alias, default, or existing API version preserves the old behavior.
+- Cite the changed line, state the old and new behavior, and describe a previously valid request or caller assumption that fails. Suggest the smallest change that would preserve compatibility or give callers a migration path.
+- Check payload shape as part of the public contract. When response-schema is active, let it report payload-only incompatibilities. Keep one finding per caller-visible break and include any applicable release or deprecation fix in its suggestion.`,
+  },
+  {
+    id: '54bd0641-daf4-4fe7-8cab-f447b9495689',
+    name: 'response-schema',
+    type: 'rubric',
+    description: 'Check whether changed success and error payloads remain compatible with existing readers.',
+    body: `# Response schema
+
+- Compare the old and new success and error payloads for the same API version, status, and media type. Check the published schema and actual serialization where both are available.
+- Check field removal and renaming, type and format changes, presence and nullability, nested and collection shapes, and enum or discriminator changes. Consider both strict decoding and what callers can safely assume after decoding.
+- Treat additive fields as compatible when existing readers accept unknown keys. Flag a new field or enum value only when a documented constraint or supported reader, such as a strict decoder or exhaustive handler, makes it incompatible.
+- Cite the changed line, operation, and field path. Describe the previous guarantee and show how a concrete new payload can fail in an existing reader. Suggest preserving the old shape or introducing the change in a new API version.`,
+  },
+  {
+    id: '54bd0641-daf4-4fe7-8cab-f447b9495690',
+    name: 'semver-discipline',
+    type: 'rubric',
+    description: 'Check whether a confirmed public API break is marked for the correct release.',
+    body: `# SemVer discipline
+
+- Start with a confirmed public API incompatibility. Identify the affected release unit and its versioning policy from repository documentation, manifests, or release automation. In a monorepo, trace the change to the package or API that actually ships it.
+- For a stable public API governed by SemVer, require a major release for an incompatible change. Apply the project's documented policy for pre-1.0, prerelease, or independently versioned APIs. Check any changeset, label, or release metadata the project uses to determine the next version.
+- Flag a missing or insufficient release signal only when the policy and relevant mechanism are evident. When policy or release context is missing, identify what needs confirmation in the compatibility finding without declaring a version violation.
+- Cite the break and the applicable policy or release mechanism. Include the required release adjustment in the same finding when the compatibility break is already reported. A version bump communicates the break and callers still need a migration path.
+
+[Semantic Versioning 2.0.0](https://semver.org/)`,
+  },
+  {
+    id: '54bd0641-daf4-4fe7-8cab-f447b9495691',
+    name: 'deprecation-policy',
+    type: 'rubric',
+    description: 'Check that public API changes give existing consumers a visible migration path.',
+    body: `# Deprecation policy
+
+- Find the project's policy for deprecating public operations, fields, and other contract elements. Check the documented notice window, supported versions, and required communication channels before judging a removal.
+- During the transition, keep the old contract usable and mark it deprecated where consumers look, such as the API schema, API docs, release notes, or the project's standard headers. Name the replacement and provide migration instructions. Record the removal date or version when it is known or required.
+- For a removal, verify that prior notice and the applicable support window are evidenced. When policy is missing, recommend a visible deprecation and a migration path without inventing a deadline or mandatory channel.
+- Cite the changed contract and state which notice or migration step is missing and who it affects. For a silent removal already reported as breaking, include the deprecation fix in that finding. For a still-working API, report a concrete gap in required notice or migration guidance.`,
+  },
 ] satisfies ReadonlyArray<{ id: string; name: string; type: SkillType; description: string; body: string }>;

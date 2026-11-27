@@ -4,8 +4,8 @@ import { corroborationFiles, FOCUS_FILE_LIMIT, INITIAL_FILES, normalizeFocus, pr
 
 describe('focused convention scans', () => {
   it('accepts named branches and rejects ref syntax that could resolve a different object', () => {
-    expect(['main', 'feature/billing', 'release/v2.5'].every(validBranch)).toBe(true);
-    expect(['HEAD', 'head', 'main~1', 'branch@{1}', 'main:other', 'a..b', 'x//y', 'topic.lock', '-main'].some(validBranch)).toBe(false);
+    expect(['main', 'feature/billing', 'release/v2.5', '-fix'].every(validBranch)).toBe(true);
+    expect(['HEAD', 'head', 'main~1', 'branch@{1}', 'main:other', 'a..b', 'x//y', 'topic.lock'].some(validBranch)).toBe(false);
   });
   it('favors a web workflow using metadata and the available graph rank', () => {
     const paths = ['src/billing/routes.ts', 'src/billing/service.ts', 'src/settings/form.tsx', 'src/settings/store.ts'];

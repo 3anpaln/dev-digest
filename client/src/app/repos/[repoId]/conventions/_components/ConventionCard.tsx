@@ -81,7 +81,8 @@ export function ConventionCard({ finding, repoId, branch }: { finding: Conventio
         <select className={styles.decision} data-decision={finding.decision}
           aria-label={t("decision")} value={finding.decision} disabled={save.isPending || Boolean(draft)}
           onChange={(event) => {
-            const decision = decisions[event.target.selectedIndex];
+            const value = event.currentTarget.value;
+            const decision = decisions.find((option) => option === value);
             if (decision) decide(decision);
           }}>
           {decisions.map((decision) => <option key={decision} value={decision}>{t(decision)}</option>)}

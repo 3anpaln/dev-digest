@@ -179,10 +179,23 @@ suite('conventions and workspace skill lifecycle', () => {
         { status: 'done', findings_count: 2 },
         { status: 'done', findings_count: 2 },
       ]);
+      const legacyFindings = [
+        { rule: 'Legacy finding with a missing original scope', originalScope: null },
+        { rule: 'Legacy finding with a blank original scope', originalScope: '' },
+      ];
+      const legacyEvidence = { path: 'src/billing/order.ts', start_line: 1, end_line: 1, snippet: 'throw new BillingError();' };
+      await db.insert(t.conventions).values(legacyFindings.map((finding) => ({
+        ...finding, workspaceId: local.workspaceId, repoId: repo!.id, scanId: started.json().id,
+        scope: kept.scope, confidence: kept.confidence, decision: 'accepted' as const, accepted: true,
+        evidence: [legacyEvidence], evidencePath: legacyEvidence.path, evidenceSnippet: legacyEvidence.snippet,
+      })));
       fixture.findings = Array.from({ length: 8 }, (_, index) => proposal('Scoped billing pattern ' + index, 1));
-      expect((await scan()).statusCode).toBe(202);
+      const nextScan = await scan();
+      expect(nextScan.statusCode).toBe(202);
       await app.container.jobs.onIdle();
       const focused = await getPage();
+      expect(focused.successful).toMatchObject({ id: nextScan.json().id, status: 'done' });
+      for (const legacy of legacyFindings) expect(byRule(focused, legacy.rule)).toBeUndefined();
       expect(focused.findings.filter(({ decision }: { decision: string }) => decision === 'pending')).toHaveLength(5);
       expect(focused.findings.filter(({ decision }: { decision: string }) => decision === 'accepted')).toHaveLength(2);
       fixture.findings = [{

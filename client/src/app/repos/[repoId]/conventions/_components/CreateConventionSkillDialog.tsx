@@ -21,7 +21,7 @@ export function CreateConventionSkillDialog({ repoId, branch, repository, initia
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   const save = useSaveConventionSkill(repoId, branch);
-  const [requestId] = useState(() => globalThis.crypto.randomUUID());
+  const requestId = useRef<string | null>(null);
   const [source, setSource] = useState(initial);
   const [edits, setEdits] = useState<Partial<Fields>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -55,7 +55,8 @@ export function CreateConventionSkillDialog({ repoId, branch, repository, initia
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || conflict || !fields.name.trim() || !fields.body.trim()) return;
-    save.mutate({ ...fields, revision: source.revision, requestId }, {
+    requestId.current ??= globalThis.crypto.randomUUID();
+    save.mutate({ ...fields, revision: source.revision, requestId: requestId.current }, {
       onSuccess: (skill) => {
         onClose();
         router.push("/skills?skill=" + encodeURIComponent(skill.id));

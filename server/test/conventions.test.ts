@@ -20,6 +20,7 @@ describe('conventions extraction', () => {
         { ...billing, evidence: [cite('src/billing/refund.ts'), cite('src/search/query.ts'), cite('missing.ts')] },
         { ...search, evidence: [cite('src/search/query.ts'), cite('src/search/index.ts'), cite('src/search/query.ts', 99)] },
         { ...billing, scope: 'Entire repository', evidence: [cite('src/billing/charge.ts'), cite('src/billing/charge.ts')] },
+        { ...billing, scope: '/**', evidence: [cite('src/billing/charge.ts'), cite('src/billing/refund.ts')] },
       ] },
     } });
     const grouped = new Map<string, GroundedConvention>();

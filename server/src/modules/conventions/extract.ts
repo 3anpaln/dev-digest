@@ -108,7 +108,8 @@ export async function extractConventions(
       scopeDirectory = directory;
     }
     const entireRepo = scope === ENTIRE_REPOSITORY;
-    if (!rule || rule.length > 240 || /[\r\n]/.test(rule) || (!entireRepo && !eligiblePath(scopeDirectory))) continue;
+    if (!rule || rule.length > 240 || /[\r\n]/.test(rule)) continue;
+    if (!entireRepo && (scopeDirectory === '' || !eligiblePath(scopeDirectory))) continue;
     if (directory !== '.' && scopeDirectory !== directory && !scopeDirectory.startsWith(directory + '/')) continue;
     const key = conventionKey(rule, scope);
     const finding = grouped.get(key) ?? { rule, scope, confidence: proposal.confidence, evidence: [] };

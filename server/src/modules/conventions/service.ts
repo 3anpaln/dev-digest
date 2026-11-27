@@ -461,10 +461,14 @@ export class ConventionsService {
       .innerJoin(jobs, eq(jobs.id, conventions.scanId))
       .where(and(findingsInRepo(repo), scansInRepo(repo, branch), eq(jobs.status, 'done'), isNotNull(conventions.originalScope)))
       .orderBy(desc(jobs.scheduledAt), desc(jobs.id), asc(conventions.id));
-    const seen = new Set(current.filter((row) => row.originalScope).map((row) =>
-      conventionKey(row.originalRule ?? row.rule, row.originalScope!)));
+    const seen = new Set<string>();
+    for (const row of current) {
+      if (!row.originalScope) continue;
+      seen.add(conventionKey(row.originalRule ?? row.rule, row.originalScope));
+    }
     for (const { row, payload } of history) {
-      const key = conventionKey(row.originalRule ?? row.rule, row.originalScope!);
+      if (!row.originalScope) continue;
+      const key = conventionKey(row.originalRule ?? row.rule, row.originalScope);
       if (seen.has(key)) continue;
       seen.add(key);
       if (row.decision !== 'pending') result.push({ row, commit: (payload as ScanPayload).commit });
