@@ -14,3 +14,4 @@ Cross-package acceptance criteria belong here. The [roadmap](../README.md#roadma
 - [Latest review cost on PR cards](pr-card-run-cost.md)
 - [Finding icons and previews](pr-finding-previews.md)
 - [Agent skills](agent-skills.md)
+- [Conventions Extractor](conventions-extractor.md)
