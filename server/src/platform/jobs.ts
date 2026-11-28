@@ -1,5 +1,5 @@
 import PQueue from 'p-queue';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import * as t from '../db/schema.js';
 import { withTimeout, withRetry } from './resilience.js';
@@ -29,7 +29,7 @@ export interface EnqueuedJob {
 
 export class JobRunner {
   private queue: PQueue;
-  private handlers = new Map<string, JobHandler>();
+  private handlers = new Map<string, { handler: JobHandler; timeoutMs: number }>();
   private timeoutMs: number;
   private retries: number;
 
@@ -42,29 +42,36 @@ export class JobRunner {
     this.retries = opts.retries ?? 2;
   }
 
-  register(kind: string, handler: JobHandler): void {
-    this.handlers.set(kind, handler);
+  register(kind: string, handler: JobHandler, opts: { timeoutMs?: number } = {}): void {
+    this.handlers.set(kind, { handler, timeoutMs: opts.timeoutMs ?? this.timeoutMs });
   }
 
   async enqueue(workspaceId: string, kind: string, payload: unknown): Promise<EnqueuedJob> {
-    const handler = this.handlers.get(kind);
-    if (!handler) throw new Error(`No job handler registered for kind '${kind}'`);
+    if (!this.handlers.has(kind)) throw new Error(`No job handler registered for kind '${kind}'`);
 
     const [row] = await this.db
       .insert(t.jobs)
       .values({ workspaceId, kind, payload: payload as object, status: 'queued' })
       .returning({ id: t.jobs.id });
-    const jobId = row!.id;
+    return this.schedule(row!.id, kind, payload);
+  }
 
+  /** Run a queued job inserted as part of a feature transaction. */
+  schedule(jobId: string, kind: string, payload: unknown): EnqueuedJob {
+    const registration = this.handlers.get(kind);
+    if (!registration) throw new Error(`No job handler registered for kind '${kind}'`);
+    const { handler, timeoutMs } = registration;
     const done = this.queue.add(async () => {
-      await this.db
+      const [started] = await this.db
         .update(t.jobs)
         .set({ status: 'running', startedAt: new Date() })
-        .where(eq(t.jobs.id, jobId));
+        .where(and(eq(t.jobs.id, jobId), eq(t.jobs.status, 'queued')))
+        .returning({ id: t.jobs.id });
+      if (!started) return;
       try {
         await withRetry(
           () =>
-            withTimeout(handler(payload, { jobId }), this.timeoutMs).then(async () => {
+            withTimeout(handler(payload, { jobId }), timeoutMs).then(async () => {
               await this.db
                 .update(t.jobs)
                 .set({ attempts: 1 })

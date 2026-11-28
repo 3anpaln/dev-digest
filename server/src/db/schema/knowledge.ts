@@ -2,6 +2,8 @@ import { pgTable, uuid, text, jsonb, timestamp, doublePrecision, boolean, vector
 import { now } from './_shared';
 import { workspaces } from './core';
 import { repos } from './repos';
+import { jobs } from './ops';
+import type { ConventionEvidence } from '@devdigest/shared';
 
 // ============================================================ Knowledge / RAG
 
@@ -39,4 +41,12 @@ export const conventions = pgTable('conventions', {
   evidenceSnippet: text('evidence_snippet'),
   confidence: doublePrecision('confidence'),
   accepted: boolean('accepted').notNull().default(false),
-});
+  scanId: uuid('scan_id').references(() => jobs.id, { onDelete: 'cascade' }),
+  originalRule: text('original_rule'),
+  originalScope: text('original_scope'),
+  scope: text('scope'),
+  decision: text('decision', { enum: ['pending', 'accepted', 'rejected'] }).notNull().default('pending'),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  previousEvidenceCommit: text('previous_evidence_commit'),
+  evidence: jsonb('evidence').$type<Omit<ConventionEvidence, 'url'>[]>(),
+}, (t) => ({ scanIdx: index('conventions_scan_idx').on(t.scanId) }));

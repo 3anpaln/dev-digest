@@ -31,9 +31,9 @@ export function useShellContext({ onOpenCommandPalette }: ShellContextOptions): 
   const onSelectRepo = React.useCallback(
     (id: string) => {
       setRepoId(id);
-      router.push(`/repos/${id}/pulls`);
+      router.push(`/repos/${id}/${activeKeyFor(pathname) === "conventions" ? "conventions" : "pulls"}`);
     },
-    [setRepoId, router],
+    [setRepoId, router, pathname],
   );
 
   const onAddRepo = React.useCallback(() => router.push("/onboarding"), [router]);

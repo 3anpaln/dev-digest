@@ -115,7 +115,7 @@ Use **Runs with skill** as the usage label. Assigned and enabled skills are appl
 
 ## Scope decisions and proposed improvements
 
-- **Global skill library.** A skill is a Markdown instruction body. Manual authoring is available today. The planned Add skill dialog covers Markdown files, skill cores extracted from archives, and Markdown URL imports. Community search, automatic extraction from repositories, and importing supporting files, scripts, or tool permissions are deferred.
+- **Global skill library.** A skill is a Markdown instruction body. Manual authoring is available today. The planned Add skill dialog covers Markdown files, skill cores extracted from archives, and Markdown URL imports. The [Conventions Extractor](conventions-extractor.md) defines repository-based creation and workspace visibility. Community search and importing supporting files, scripts, or tool permissions are deferred.
 - **Studio reviews.** CI distribution, executable evals, and automatic skill selection are deferred. The **Evals** tab is a placeholder.
 - **Global library permissions.** Add a dedicated permission for creating, editing, disabling, and restoring global skills in a later release. Keep management of an agent's assignments under that workspace's permissions.
 - **Cross-workspace Stats.** Defer shared aggregates and the permission to view them. The initial Stats tab uses the selected workspace.

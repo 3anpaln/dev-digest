@@ -91,7 +91,8 @@ export function ConfigTab({ agent }: { agent: Agent }) {
         <TextInput value={description} onChange={setDescription} />
       </FormField>
       <FormField label={t("config.provider")}>
-        <SelectInput
+        <SearchableSelect
+          label={t("config.provider")}
           value={provider}
           onChange={(v) => setProvider(v as Provider)}
           options={[...PROVIDER_OPTIONS]}
@@ -102,6 +103,7 @@ export function ConfigTab({ agent }: { agent: Agent }) {
         hint={noModels ? t("config.modelEmptyHint", { provider }) : t("config.modelHint")}
       >
         <SearchableSelect
+          label={t("config.model")}
           value={model}
           onChange={setModel}
           options={modelOptions}
@@ -109,14 +111,16 @@ export function ConfigTab({ agent }: { agent: Agent }) {
         />
       </FormField>
       <FormField label={t("config.strategy")} hint={t("config.strategyHint")}>
-        <SelectInput
+        <SearchableSelect
+          label={t("config.strategy")}
           value={strategy}
           onChange={(v) => setStrategy(v as ReviewStrategy)}
           options={strategyOptions}
         />
       </FormField>
       <FormField label={t("config.ciFailOn")} hint={t("config.ciFailOnHint")}>
-        <SelectInput
+        <SearchableSelect
+          label={t("config.ciFailOn")}
           value={ciFailOn}
           onChange={(v) => setCiFailOn(v as CiFailOn)}
           options={ciFailOnOptions}

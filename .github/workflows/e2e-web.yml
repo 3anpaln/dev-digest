@@ -70,7 +70,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm db:migrate
-          pnpm db:seed
+          pnpm db:seed --conventions-fixture
 
       # The API imports @devdigest/reviewer-core's RAW source at runtime (tsx
       # resolves the tsconfig alias to ../reviewer-core/src), and that source

@@ -229,6 +229,39 @@ export class SimpleGitClient implements GitClient {
     return (await this.git(repo).revparse(['HEAD'])).trim();
   }
 
+  async branchHead(repo: RepoRef, branch: string): Promise<string> {
+    return (await this.git(repo).revparse(['--verify', `refs/remotes/origin/${branch}^{commit}`])).trim();
+  }
+
+  async fetchBranch(repo: RepoRef, branch: string): Promise<void> {
+    const source = 'refs/heads/' + branch;
+    await this.git(repo).raw(['check-ref-format', source]);
+    const dest = this.clonePathFor(repo);
+    await this.scrubRemote(dest, repo);
+    await (await this.netGit(dest)).fetch([
+      'origin', '+' + source + ':refs/remotes/origin/' + branch, '--depth', String(RESYNC_FETCH_DEPTH),
+    ]);
+  }
+
+  async listTrackedSourcePaths(repo: RepoRef, commit: string): Promise<string[]> {
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) throw new Error('Invalid source commit');
+    const tree = await this.git(repo).raw(['ls-tree', '-r', '-z', '--full-tree', commit]);
+    const paths: string[] = [];
+    for (const entry of tree.split('\0')) {
+      if (/^100(?:644|755) blob [a-f0-9]+\t/.test(entry)) paths.push(entry.slice(entry.indexOf('\t') + 1));
+    }
+    return paths;
+  }
+
+  async readSourceAt(repo: RepoRef, commit: string, path: string, maxBytes: number): Promise<string | null> {
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) throw new Error('Invalid source commit');
+    const git = this.git(repo);
+    const entry = await git.raw(['--literal-pathspecs', 'ls-tree', '-z', '-l', commit, '--', path]);
+    const blob = /^100(?:644|755) blob ([a-f0-9]+) +([0-9]+)\t/.exec(entry);
+    if (!blob || Number(blob[2]) > maxBytes) return null;
+    return git.raw(['cat-file', 'blob', blob[1]!]);
+  }
+
   async diff(repo: RepoRef, base: string, head: string): Promise<UnifiedDiff> {
     const raw = await this.git(repo).diff([`${base}...${head}`]);
     return parseUnifiedDiff(raw);

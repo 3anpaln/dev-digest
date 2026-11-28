@@ -8,7 +8,7 @@ import { SkillsRepository } from './repository.js';
 import { loadFileDraft, loadUrlDraft, MAX_BODY_CHARS, MAX_UPLOAD_BYTES } from './import-content.js';
 import { SkillImportPreviews } from './import-previews.js';
 
-const SkillFields = z.object({
+export const SkillFields = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().max(4000),
   type: SkillType,

@@ -94,3 +94,17 @@ describe('SimpleGitClient.clone', () => {
     await expect(access(sentinel)).resolves.toBeUndefined();
   });
 });
+
+it('fetches and resolves a branch whose name begins with a dash', async () => {
+  const repo = { owner: 'acme', name: 'dash-branch' };
+  const client = new SimpleGitClient(cloneDir);
+  await client.clone(repo, upstream);
+
+  const branch = '-fix';
+  const commit = run(upstream, 'rev-parse', 'HEAD');
+  run(upstream, 'update-ref', 'refs/heads/' + branch, commit);
+
+  await expect(client.branchHead(repo, branch)).rejects.toThrow();
+  await client.fetchBranch(repo, branch);
+  await expect(client.branchHead(repo, branch)).resolves.toBe(commit);
+});

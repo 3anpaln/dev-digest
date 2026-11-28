@@ -277,6 +277,17 @@ export class MockGitClient implements GitClient {
   async currentHead(): Promise<string> {
     return this.syncedHead ?? this.opts.head ?? 'a1b2c3d4';
   }
+  async branchHead(_repo: RepoRef, _branch: string): Promise<string> {
+    return this.currentHead();
+  }
+  async fetchBranch(_repo: RepoRef, _branch: string): Promise<void> {}
+  async listTrackedSourcePaths(): Promise<string[]> {
+    return Object.keys(this.opts.files ?? {}).sort();
+  }
+  async readSourceAt(_repo: RepoRef, _commit: string, path: string, maxBytes: number): Promise<string | null> {
+    const source = this.opts.files?.[path];
+    return source !== undefined && Buffer.byteLength(source, 'utf8') <= maxBytes ? source : null;
+  }
   async diffNameOnly(): Promise<string[]> {
     return this.opts.diffNameOnly ?? [];
   }

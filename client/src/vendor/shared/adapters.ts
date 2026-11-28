@@ -67,6 +67,7 @@ export interface StructuredRequest<T> {
   maxTokens?: number;
   timeoutMs?: number;
   maxRetries?: number;
+  rejectTruncated?: boolean;
 }
 
 export interface StructuredResult<T> {
@@ -183,6 +184,10 @@ export interface GitClient {
   clone(repo: RepoRef, url: string, opts?: CloneOptions): Promise<{ path: string }>;
   fetchPullHead(repo: RepoRef, n: number): Promise<void>;
   currentHead(repo: RepoRef): Promise<string>;
+  branchHead(repo: RepoRef, branch: string): Promise<string>;
+  fetchBranch(repo: RepoRef, branch: string): Promise<void>;
+  listTrackedSourcePaths(repo: RepoRef, commit: string): Promise<string[]>;
+  readSourceAt(repo: RepoRef, commit: string, path: string, maxBytes: number): Promise<string | null>;
   diff(repo: RepoRef, base: string, head: string): Promise<UnifiedDiff>;
   blame(repo: RepoRef, path: string): Promise<BlameLine[]>;
   log(repo: RepoRef, path?: string): Promise<GitCommit[]>;

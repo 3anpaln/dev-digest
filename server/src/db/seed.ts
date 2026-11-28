@@ -33,7 +33,7 @@ export function seedReviewSkills(db: Db): Promise<number> {
   return new SkillsRepository(db).seedPresets(REVIEW_SKILL_PRESETS);
 }
 
-export async function seed(db: Db): Promise<{ workspaceId: string; userId: string }> {
+export async function seed(db: Db, opts: { conventionsFixture?: boolean } = {}): Promise<{ workspaceId: string; userId: string }> {
   // ---- workspace + user (no-auth defaults) ----
   let [ws] = await db
     .select()
@@ -95,6 +95,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .returning();
   }
   const repoId = repo!.id;
+  if (opts.conventionsFixture) await seedConventionFixture(db, workspaceId, repoId);
 
   // ---- PR #482 (rate limiting) ----
   let [pr] = await db
@@ -229,6 +230,28 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
   return { workspaceId, userId };
 }
 
+async function seedConventionFixture(db: Db, workspaceId: string, repoId: string) {
+  const scanId = 'aa829b8c-b3fb-4ee9-8946-947c8d47f69b';
+  const rule = 'Throw typed domain errors for billing operations';
+  const scope = 'src/billing/**';
+  const snippet = 'throw new BillingError("Invalid state");';
+  const evidence = ['charge', 'refund'].map((file) => ({
+    path: 'src/billing/' + file + '.ts', start_line: 10, end_line: 10, snippet,
+  }));
+  await db.transaction(async (tx) => {
+    const [scan] = await tx.insert(t.jobs).values({
+      id: scanId, workspaceId, kind: 'conventions-scan', status: 'done', finishedAt: new Date(),
+      payload: { workspaceId, repoId, branch: 'main', commit: 'a1b2c3d4'.repeat(5), files: 2 },
+    }).onConflictDoNothing().returning({ id: t.jobs.id });
+    if (scan) {
+      await tx.insert(t.conventions).values({
+        workspaceId, repoId, scanId, rule, originalRule: rule, scope, originalScope: scope,
+        evidence, evidencePath: evidence[0]!.path, evidenceSnippet: snippet, confidence: 0.9,
+      });
+    }
+  });
+}
+
 // CLI entrypoint
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const url = process.env.DATABASE_URL;
@@ -239,7 +262,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const handle = createDb(url);
   const operation = process.argv.includes('--review-skills')
     ? seedReviewSkills(handle.db).then((added) => ({ reviewSkillsAdded: added }))
-    : seed(handle.db);
+    : seed(handle.db, { conventionsFixture: process.argv.includes('--conventions-fixture') });
   operation
     .then(async (r) => {
       console.log('✓ seeded', r);

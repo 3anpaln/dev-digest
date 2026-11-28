@@ -67,6 +67,7 @@ export interface StructuredRequest<T> {
   maxTokens?: number;
   timeoutMs?: number;
   maxRetries?: number;
+  rejectTruncated?: boolean;
   /**
    * OpenRouter session id — groups related generations (e.g. all map-reduce
    * chunks of one review) into a session in the OpenRouter dashboard. Sent as
@@ -219,6 +220,10 @@ export interface GitClient {
    */
   sync(repo: RepoRef, branch: string): Promise<{ head: string }>;
   currentHead(repo: RepoRef): Promise<string>;
+  branchHead(repo: RepoRef, branch: string): Promise<string>;
+  fetchBranch(repo: RepoRef, branch: string): Promise<void>;
+  listTrackedSourcePaths(repo: RepoRef, commit: string): Promise<string[]>;
+  readSourceAt(repo: RepoRef, commit: string, path: string, maxBytes: number): Promise<string | null>;
   diff(repo: RepoRef, base: string, head: string): Promise<UnifiedDiff>;
   /**
    * Names of files changed between two commits (`git diff --name-only base..head`).

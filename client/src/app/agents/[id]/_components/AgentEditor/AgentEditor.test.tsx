@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { Agent } from "@devdigest/shared";
 import messages from "../../../../../../messages/en/agents.json";
@@ -44,5 +44,22 @@ describe("A2 Agent Editor (smoke)", () => {
     expect(screen.getByText("Config")).toBeInTheDocument();
     expect(screen.getByText("Configuration")).toBeInTheDocument();
     expect(screen.getByText("Save agent")).toBeInTheDocument();
+  });
+
+  it("filters provider choices and returns keyboard focus after selection", () => {
+    renderWithIntl(<AgentEditor agent={AGENT} tab="config" onTab={() => {}} />);
+
+    const provider = screen.getByRole("button", { name: "Provider: openai" });
+    fireEvent.click(provider);
+    const search = screen.getByRole("textbox", { name: /^Provider — / });
+    expect(search).toHaveFocus();
+
+    fireEvent.change(search, { target: { value: "anth" } });
+    expect(screen.getByRole("button", { name: "anthropic" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "openrouter" })).toBeNull();
+    fireEvent.keyDown(search, { key: "Enter" });
+
+    expect(screen.getByRole("button", { name: "Provider: anthropic" })).toHaveFocus();
+    expect(search).not.toBeInTheDocument();
   });
 });
